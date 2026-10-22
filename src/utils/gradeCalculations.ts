@@ -150,6 +150,56 @@ export function getGradeKey(studentUid: string, courseId: string, year: string, 
   return `${studentUid}_${courseId}_${year}_${sem}`;
 }
 
+export function resolveGradeBreakdown(
+  gradesRecord: Record<string, GradeBreakdown> | undefined,
+  studentUid: string,
+  courseId: string,
+  year: string,
+  semester: string,
+  studentId?: string
+): GradeBreakdown {
+  const empty: GradeBreakdown = { p1: 0, p2: 0, mid: 0, final: 0, att: 0 };
+  if (!gradesRecord || typeof gradesRecord !== 'object') {
+    return empty;
+  }
+
+  // 1. Composite key by UID: studentUid_courseId_year_sem
+  const keyWithUid = getGradeKey(studentUid, courseId, year, semester);
+  if (gradesRecord[keyWithUid]) {
+    return gradesRecord[keyWithUid];
+  }
+
+  // 2. Direct student UID (local portal state key)
+  if (gradesRecord[studentUid]) {
+    return gradesRecord[studentUid];
+  }
+
+  // 3. Official Student ID
+  if (studentId) {
+    if (gradesRecord[studentId]) {
+      return gradesRecord[studentId];
+    }
+    const keyWithId = getGradeKey(studentId, courseId, year, semester);
+    if (gradesRecord[keyWithId]) {
+      return gradesRecord[keyWithId];
+    }
+  }
+
+  // 4. Case-insensitive / prefix matching
+  const cleanUid = studentUid.trim().toLowerCase();
+  const cleanId = studentId ? studentId.trim().toLowerCase() : '';
+  const cleanKey = keyWithUid.toLowerCase();
+
+  for (const k of Object.keys(gradesRecord)) {
+    const kLow = k.toLowerCase();
+    if (kLow === cleanKey || kLow === cleanUid || (cleanId && kLow === cleanId)) {
+      return gradesRecord[k];
+    }
+  }
+
+  return empty;
+}
+
 export function calculateStudentGPA(
   student: Student,
   allCourses: Course[],
@@ -162,14 +212,11 @@ export function calculateStudentGPA(
   let totalCredits = 0;
 
   studentCourses.forEach(course => {
-    const key = getGradeKey(student.uid, course.id, year, sem);
-    const breakdown = gradesRecord[key];
-    if (breakdown) {
-      const eff = getEffectiveGradeValues(breakdown, getCourseAssessmentItems(course));
-      if (eff.hasAny) {
-        totalQualityPoints += (eff.points * course.credits);
-        totalCredits += course.credits;
-      }
+    const breakdown = resolveGradeBreakdown(gradesRecord, student.uid, course.id, year, sem, student.id);
+    const eff = getEffectiveGradeValues(breakdown, getCourseAssessmentItems(course));
+    if (eff.hasAny) {
+      totalQualityPoints += (eff.points * course.credits);
+      totalCredits += course.credits;
     }
   });
 

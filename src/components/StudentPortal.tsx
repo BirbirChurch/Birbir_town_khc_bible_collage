@@ -1,7 +1,8 @@
-import React from 'react';
-import { User, Award, Calendar, BookOpen, Clock, Printer, AlertTriangle, CheckCircle2, Bookmark } from 'lucide-react';
-import { Course, GradeBreakdown, Student } from '../types.ts';
+import React, { useState } from 'react';
+import { User, Award, Calendar, BookOpen, Clock, Printer, AlertTriangle, CheckCircle2, Bookmark, GraduationCap } from 'lucide-react';
+import { Course, GradeBreakdown, OfficialSignaturesConfig, Student } from '../types.ts';
 import { calculateGradeDetails, calculateStudentGPA, getCourseAssessmentItems, getEffectiveGradeValues, getGradeKey } from '../utils/gradeCalculations.ts';
+import { GraduationTranscriptModal } from './GraduationTranscriptModal.tsx';
 
 interface StudentPortalProps {
   student: Student;
@@ -11,6 +12,8 @@ interface StudentPortalProps {
   currentYear: string;
   currentSemester: string;
   gradePublished: boolean;
+  officialConfig?: OfficialSignaturesConfig;
+  churchLogo?: string;
   onOpenTranscript: () => void;
 }
 
@@ -22,8 +25,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   currentYear,
   currentSemester,
   gradePublished,
+  officialConfig,
+  churchLogo,
   onOpenTranscript
 }) => {
+  const [showGraduationTranscript, setShowGraduationTranscript] = useState(false);
   const studentCourses = courses.filter((c) => c.program === student.program);
   const gpa = calculateStudentGPA(student, courses, grades, currentYear, currentSemester);
 
@@ -40,7 +46,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             )}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xl sm:text-2xl font-bold text-slate-800">{student.name}</h2>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
@@ -51,23 +57,51 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               >
                 {student.program === 'Degree' ? 'የድግሪ ፕሮግራም' : 'የዲፕሎማ ፕሮግራም'}
               </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                student.currentStudyYear === 2 ? 'bg-amber-100 text-amber-950 border border-amber-300' : student.currentStudyYear === 3 ? 'bg-purple-100 text-purple-900' : 'bg-slate-100 text-slate-700'
+              }`}>
+                {student.currentStudyYear ? `${student.currentStudyYear}ኛ ዓመት` : '1ኛ ዓመት'}
+              </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                student.graduationStatus === 'GRADUATED'
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : student.graduationStatus === 'CANDIDATE'
+                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                  : 'bg-slate-100 text-slate-600'
+              }`}>
+                {student.graduationStatus === 'GRADUATED' ? '🎓 የተመረቀ' : student.graduationStatus === 'CANDIDATE' ? '⭐ ተማራቂ' : '📚 በመማር ላይ'}
+              </span>
             </div>
-            <p className="text-xs text-slate-500 font-semibold mt-1">
-              መለያ ኮድ: <span className="font-mono text-slate-900 font-bold bg-slate-100 px-2 py-0.5 rounded">{student.id}</span> | ጾታ: {student.gender} | {currentYear} ዓ.ም ({currentSemester}ኛ ሴሚስተር)
+            <p className="text-xs text-slate-600 font-semibold mt-1.5 flex flex-wrap items-center gap-2">
+              <span>መለያ ኮድ: <strong className="font-mono text-slate-900 bg-slate-100 px-2 py-0.5 rounded">{student.id}</strong></span>
+              <span>| ጾታ: <strong>{student.gender}</strong></span>
+              <span>| መንገድ: <strong>{student.program === 'Diploma' ? '2 ዓመት (4 ሴሚስተር)' : student.degreeTrack === '2_YEAR' || student.priorDiploma ? 'የ2 ዓመት ድግሪ (ቀድሞ ዲፕሎማ)' : 'መደበኛ 3 ዓመት ድግሪ'}</strong></span>
+            </p>
+            <p className="text-[11px] text-emerald-800 font-bold mt-1">
+              🇪🇹 እንደ ኢትዮጵያ ዘመን አቆጣጠር፦ {currentYear} ዓ.ም ({currentSemester}ኛ ሴሚስተር)
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
           <button
             onClick={onOpenTranscript}
-            className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs px-4 py-2.5 rounded-xl font-bold shadow-sm transition-all cursor-pointer"
+            className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs px-3.5 py-2.5 rounded-xl font-bold shadow-sm transition-all cursor-pointer"
           >
             <Printer className="w-4 h-4 text-amber-400" />
-            <span>ይፋዊ ትራንስክሪፕት አትም</span>
+            <span>የሴሚስተር ትራንስክሪፕት</span>
           </button>
 
-          <div className="bg-gradient-to-br from-amber-50 to-amber-100/70 border border-amber-300 rounded-2xl p-3.5 text-center min-w-[130px] shadow-xs">
+          <button
+            onClick={() => setShowGraduationTranscript(true)}
+            className="inline-flex items-center gap-1.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs px-3.5 py-2.5 rounded-xl font-bold shadow-sm transition-all cursor-pointer"
+            title="የተማሩበትን ሙሉ ትምህርት የምረቃ ትራንስክሪፕት በአንድ ላይ ይመልከቱ"
+          >
+            <GraduationCap className="w-4 h-4 text-amber-300" />
+            <span>ሙሉ የምረቃ ትራንስክሪፕት</span>
+          </button>
+
+          <div className="bg-gradient-to-br from-amber-50 to-amber-100/70 border border-amber-300 rounded-2xl p-3 text-center min-w-[120px] shadow-xs">
             <span className="block text-[10px] uppercase font-bold text-amber-800 tracking-wider">
               የሴሚስተሩ GPA
             </span>
@@ -180,11 +214,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               በትምህርት ወቅት በትጋት፣ በጸሎትና በአክብሮት በመገኘት የቤተ ክርስቲያንን አደራ በታማኝነት መወጣት ይገባል።
             </p>
             <p className="text-[11px] text-amber-300/90 font-medium pt-1">
-              ቅድስት ሥላሴ መንፈሳዊ ኮሌጅ
+              የብርብር ከተማ ቃለ ሕይወት ቤተ ክርስቲያን መጽሐፍ ቅዱስ ትምህርት ቤት
             </p>
           </div>
         </div>
       </div>
+
+      {/* Complete Consolidated Graduation Transcript Modal */}
+      {showGraduationTranscript && (
+        <GraduationTranscriptModal
+          student={student}
+          allCourses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          officialConfig={officialConfig}
+          churchLogo={churchLogo}
+          onClose={() => setShowGraduationTranscript(false)}
+        />
+      )}
     </div>
   );
 };

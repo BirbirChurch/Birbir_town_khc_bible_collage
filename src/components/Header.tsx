@@ -15,6 +15,8 @@ interface HeaderProps {
   isTestingFirebase: boolean;
   onOpenFirebaseModal: () => void;
   churchLogo?: string;
+  currentYear?: string;
+  currentSemester?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,7 +29,9 @@ export const Header: React.FC<HeaderProps> = ({
   firebaseReport,
   isTestingFirebase,
   onOpenFirebaseModal,
-  churchLogo
+  churchLogo,
+  currentYear = '2019',
+  currentSemester = '1'
 }) => {
   const getRoleAmharicName = (role: string) => {
     switch (role) {
@@ -56,9 +60,14 @@ export const Header: React.FC<HeaderProps> = ({
                 <h1 className="text-base sm:text-lg md:text-xl font-bold leading-tight tracking-wide text-amber-300 drop-shadow-sm">
                   የብርብር ከተማ ቃለ ሕይወት ቤተ ክርስቲያን
                 </h1>
-                <p className="text-xs md:text-sm text-emerald-100/90 font-medium tracking-normal">
-                  መጽሐፍ ቅዱስ ትምህርት ቤት የመረጃ ማኔጅመንት ሲስተም
-                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                  <p className="text-xs md:text-sm text-emerald-100/90 font-medium tracking-normal">
+                    መጽሐፍ ቅዱስ ትምህርት ቤት የመረጃ ማኔጅመንት ሲስተም
+                  </p>
+                  <span className="inline-flex items-center gap-1 bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[10px] px-2.5 py-0.5 rounded-full font-bold">
+                    <span>🇪🇹 እንደ ኢትዮጵያ ዘመን አቆጣጠር፦ {currentYear} ዓ.ም ({currentSemester}ኛ ሴሚስተር)</span>
+                  </span>
+                </div>
               </div>
             </div>
 

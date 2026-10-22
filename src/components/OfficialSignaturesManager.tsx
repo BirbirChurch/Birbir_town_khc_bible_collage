@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { OfficialSignaturesConfig } from '../types.ts';
 import { CHURCH_LOGO } from '../assets/logo.ts';
+import { compressImage } from '../utils/imageCompressor.ts';
 
 interface OfficialSignaturesManagerProps {
   config: OfficialSignaturesConfig;
@@ -54,54 +55,80 @@ export const OfficialSignaturesManager: React.FC<OfficialSignaturesManagerProps>
   }, [config]);
 
   // Handle image file upload for stamp or signatures
-  const handleFileUpload = (
+  const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     target: 'STAMP' | 'DEAN' | 'REGISTRAR'
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      showNotify('የምስሉ መጠን ከ 2MB መብለጥ የለበትም', 'error');
+    if (file.size > 8 * 1024 * 1024) {
+      showNotify('የምስሉ መጠን ከ 8MB መብለጥ የለበትም', 'error');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
+    try {
+      // Compress to optimal dimensions for crisp seal / signature (< 50KB)
+      const maxDim = target === 'STAMP' ? 450 : 380;
+      const compressed = await compressImage(file, maxDim, 0.9, true);
+
       let updated: OfficialSignaturesConfig;
 
       if (target === 'STAMP') {
         updated = {
           ...localConfig,
-          stampImage: result,
+          stampImage: compressed,
           showStamp: true,
           useChurchLogoAsStamp: false
         };
       } else if (target === 'DEAN') {
         updated = {
           ...localConfig,
-          deanSignatureImage: result,
+          deanSignatureImage: compressed,
           showDeanSignature: true
         };
       } else {
         updated = {
           ...localConfig,
-          registrarSignatureImage: result,
+          registrarSignatureImage: compressed,
           showRegistrarSignature: true
         };
       }
 
       setLocalConfig(updated);
       onSaveConfig(updated);
+      // Persist permanently in IndexedDB as well
+      try {
+        if (typeof window !== 'undefined' && window.indexedDB) {
+          const req = indexedDB.open('BirbirKHC_Storage', 1);
+          req.onupgradeneeded = (ev: any) => {
+            const db = ev.target.result;
+            if (!db.objectStoreNames.contains('branding_assets')) {
+              db.createObjectStore('branding_assets');
+            }
+          };
+          req.onsuccess = () => {
+            try {
+              const db = req.result;
+              const tx = db.transaction('branding_assets', 'readwrite');
+              const store = tx.objectStore('branding_assets');
+              store.put(JSON.stringify(updated), 'bk_official_config');
+            } catch (_) {}
+          };
+        }
+      } catch (_) {}
+
       showNotify(
         target === 'STAMP'
-          ? 'ይፋዊ ማኅተም በስኬት ተጭኗል!'
-          : 'ይፋዊ ፊርማ በስኬት ተጭኗል!',
+          ? 'ይፋዊ ማኅተም በስኬት ተጭኖ በቋሚነት ተቀምጧል!'
+          : 'ይፋዊ ፊርማ በስኬት ተጭኖ በቋሚነት ተቀምጧል!',
         'success'
       );
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error compressing upload:', err);
+      showNotify('ምስሉን ማስተናገድ አልተቻለም፤ እባክዎ እንደገና ይሞክሩ', 'error');
+    }
+
     e.target.value = '';
   };
 
@@ -624,15 +651,12 @@ export const OfficialSignaturesManager: React.FC<OfficialSignaturesManagerProps>
 
             {/* Optional Stamp positioned between or alongside */}
             {localConfig.showStamp && (
-              <div className="absolute left-1/2 -top-2 transform -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-90">
-                <div className="w-20 h-20 rounded-full border-2 border-dashed border-indigo-600/80 p-1 flex items-center justify-center bg-white/70 backdrop-blur-xs shadow-xs">
-                  <img
-                    src={effectiveStampImage}
-                    alt="ማኅተም"
-                    className="w-14 h-14 object-contain"
-                  />
-                </div>
-                <span className="text-[8px] font-bold text-indigo-900 mt-0.5">ይፋዊ ማኅተም</span>
+              <div className="absolute left-1/2 -top-4 transform -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-95">
+                <img
+                  src={effectiveStampImage}
+                  alt="ማኅተም"
+                  className="w-28 h-28 object-contain drop-shadow-sm select-none"
+                />
               </div>
             )}
 
@@ -738,3 +762,42 @@ export const OfficialSignaturesManager: React.FC<OfficialSignaturesManagerProps>
     </div>
   );
 };
+
+export const loadPersistentOfficialConfig = async (): Promise<OfficialSignaturesConfig | null> => {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (window.indexedDB) {
+      const configStr = await new Promise<string | null>((resolve) => {
+        try {
+          const req = indexedDB.open('BirbirKHC_Storage', 1);
+          req.onupgradeneeded = (ev: any) => {
+            const db = ev.target.result;
+            if (!db.objectStoreNames.contains('branding_assets')) {
+              db.createObjectStore('branding_assets');
+            }
+          };
+          req.onsuccess = () => {
+            try {
+              const db = req.result;
+              const tx = db.transaction('branding_assets', 'readonly');
+              const store = tx.objectStore('branding_assets');
+              const getReq = store.get('bk_official_config');
+              getReq.onsuccess = () => resolve(getReq.result || null);
+              getReq.onerror = () => resolve(null);
+            } catch {
+              resolve(null);
+            }
+          };
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+      if (configStr) {
+        return JSON.parse(configStr);
+      }
+    }
+  } catch (_) {}
+  return null;
+};
+

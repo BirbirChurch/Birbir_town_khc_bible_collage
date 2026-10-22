@@ -21,7 +21,9 @@ import { calculateGradeDetails, calculateStudentGPA, getCourseAssessmentItems, g
 import { getCriterionColor } from './TeacherPortal.tsx';
 import { ExcelUploadModal } from './ExcelUploadModal.tsx';
 import { CourseGradeReportPdfModal } from './CourseGradeReportPdfModal.tsx';
-import { exportCourseGradesToExcel } from '../utils/excelUtils.ts';
+import { exportCourseGradesToExcel, exportMasterSemesterGradeSheetToExcel } from '../utils/excelUtils.ts';
+import { GraduationManager } from './GraduationManager.tsx';
+import { MasterGradeReportPdfModal } from './MasterGradeReportPdfModal.tsx';
 
 interface RegistrarPortalProps {
   students: Student[];
@@ -30,6 +32,7 @@ interface RegistrarPortalProps {
   photos: Record<string, string>;
   currentYear: string;
   currentSemester: string;
+  availableYears?: string[];
   onOpenAddStudent: () => void;
   onOpenPhotoModal: (studentUid: string) => void;
   onSelectPrintTranscript: (student: Student) => void;
@@ -38,6 +41,8 @@ interface RegistrarPortalProps {
   onSaveGrades?: (updatedGrades: Record<string, GradeBreakdown>) => void;
   officialConfig?: OfficialSignaturesConfig;
   churchLogo?: string;
+  onUpdateStudents?: (updated: Student[]) => void;
+  teachers?: string[];
 }
 
 export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
@@ -47,6 +52,7 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
   photos,
   currentYear,
   currentSemester,
+  availableYears,
   onOpenAddStudent,
   onOpenPhotoModal,
   onSelectPrintTranscript,
@@ -54,17 +60,21 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
   showNotify,
   onSaveGrades,
   officialConfig,
-  churchLogo
+  churchLogo,
+  onUpdateStudents,
+  teachers
 }) => {
-  const [activeTab, setActiveTab] = useState<'students' | 'teacher_assignments' | 'course_grades' | 'all_grades'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'teacher_assignments' | 'course_grades' | 'all_grades' | 'graduation'>('students');
   const [searchTerm, setSearchTerm] = useState('');
   const [programFilter, setProgramFilter] = useState<'ALL' | ProgramType>('ALL');
   const [genderFilter, setGenderFilter] = useState<'ALL' | 'ወንድ' | 'ሴት'>('ALL');
+  const [yearFilter, setYearFilter] = useState<'ALL' | number>('ALL');
 
   // Course Grade Entry & Verification State
   const [selectedCourseId, setSelectedCourseId] = useState<string>(courses[0]?.id || '');
   const [isExcelUploadOpen, setIsExcelUploadOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isMasterPdfOpen, setIsMasterPdfOpen] = useState(false);
   const [localGrades, setLocalGrades] = useState<Record<string, GradeBreakdown>>({});
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) || courses[0];
@@ -173,7 +183,8 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
       s.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesProg = programFilter === 'ALL' || s.program === programFilter;
     const matchesGender = genderFilter === 'ALL' || s.gender === genderFilter;
-    return matchesSearch && matchesProg && matchesGender;
+    const matchesYear = yearFilter === 'ALL' || (s.currentStudyYear || 1) === yearFilter;
+    return matchesSearch && matchesProg && matchesGender && matchesYear;
   });
 
   const degreeCount = students.filter(s => s.program === 'Degree').length;
@@ -321,6 +332,18 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
           <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
           <span>አጠቃላይ ውጤት መመልከቻና ማውረጃ</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('graduation')}
+          className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 ${
+            activeTab === 'graduation'
+              ? 'border-emerald-700 text-emerald-800 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4 text-amber-500" />
+          <span>የተማራቂዎች ማረጋገጫና ማህደር</span>
+        </button>
       </div>
 
       {/* TAB 1: Student Roster */}
@@ -394,6 +417,17 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
                 <option value="ሴት">ሴት ብቻ</option>
               </select>
 
+              <select
+                value={yearFilter}
+                onChange={(e) => setYearFilter(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+                className="px-3 py-1.5 text-xs rounded-xl border border-slate-300 font-semibold bg-slate-50 cursor-pointer"
+              >
+                <option value="ALL">ደረጃ: ሁሉም ዓመታት</option>
+                <option value={1}>1ኛ ዓመት (Year 1)</option>
+                <option value={2}>2ኛ ዓመት (Year 2)</option>
+                <option value={3}>3ኛ ዓመት (Year 3)</option>
+              </select>
+
               <span className="text-xs text-slate-500 font-medium">
                 የተገኙ: <strong className="text-slate-800">{filteredStudents.length}</strong>
               </span>
@@ -412,6 +446,9 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
                     <th className="p-3">የተማሪው ሙሉ ስም</th>
                     <th className="p-3">ጾታ</th>
                     <th className="p-3">ፕሮግራም</th>
+                    <th className="p-3">ደረጃ / ዓመት</th>
+                    <th className="p-3">የትምህርት መንገድ</th>
+                    <th className="p-3">ሁኔታ</th>
                     <th className="p-3 text-center">ሴሚስተር GPA</th>
                     <th className="p-3 text-right">ተግባር (Actions)</th>
                   </tr>
@@ -419,7 +456,7 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {filteredStudents.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400 italic">
+                      <td colSpan={11} className="p-8 text-center text-slate-400 italic">
                         ምንም የተገኘ ተማሪ የለም።
                       </td>
                     </tr>
@@ -454,7 +491,10 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
                             </div>
                           </td>
                           <td className="p-3 font-mono font-bold text-slate-800">{s.id}</td>
-                          <td className="p-3 font-bold text-slate-900">{s.name}</td>
+                          <td className="p-3">
+                            <span className="font-bold text-slate-900 block">{s.name}</span>
+                            <span className="text-[10px] text-slate-400">የገቡበት: {s.admissionYear || '2019'} ዓ.ም</span>
+                          </td>
                           <td className="p-3 text-slate-600 font-semibold">{s.gender}</td>
                           <td className="p-3">
                             <span
@@ -465,6 +505,33 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
                               }`}
                             >
                               {s.program === 'Degree' ? 'ድግሪ' : 'ዲፕሎማ'}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                              s.currentStudyYear === 2 ? 'bg-amber-100 text-amber-950 border border-amber-300' : s.currentStudyYear === 3 ? 'bg-purple-100 text-purple-900' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {s.currentStudyYear ? `${s.currentStudyYear}ኛ ዓመት` : '1ኛ ዓመት'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-[11px] text-slate-600">
+                            {s.program === 'Diploma' ? (
+                              <span>2 ዓመት (4 ሴሚስተር)</span>
+                            ) : s.degreeTrack === '2_YEAR' || s.priorDiploma ? (
+                              <span className="font-bold text-indigo-700">2 ዓመት (ቅድመ ዲፕሎማ)</span>
+                            ) : (
+                              <span>3 ዓመት መደበኛ (5-6 ሴሚስተር)</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              s.graduationStatus === 'GRADUATED'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : s.graduationStatus === 'CANDIDATE'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {s.graduationStatus === 'GRADUATED' ? 'የተመረቀ' : s.graduationStatus === 'CANDIDATE' ? 'ተማራቂ' : 'በመማር ላይ'}
                             </span>
                           </td>
                           <td className="p-3 text-center font-black text-amber-700 font-mono text-sm">
@@ -592,13 +659,37 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={handleExportMasterGradeSheet}
-              className="bg-indigo-700 hover:bg-indigo-800 text-white text-xs px-4 py-2.5 rounded-xl font-bold flex items-center gap-1.5 shadow-sm"
-            >
-              <Download className="w-4 h-4" />
-              <span>ጠቅላላ የውጤት ፋይል አውርድ (CSV)</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => exportMasterSemesterGradeSheetToExcel(students, courses, grades, currentYear, currentSemester, programFilter)}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3.5 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                title="አጠቃላይ ውጤቱን በማይክሮሶፍት ኤክሴል ፋይል አውርድ"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+                <span>ጠቅላላ ውጤት ኤክሴል (.xlsx)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMasterPdfOpen(true)}
+                className="bg-cyan-50 hover:bg-cyan-100 text-cyan-950 border border-cyan-300 text-xs px-3.5 py-2 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="አጠቃላይ ውጤቱን በይፋዊ ፒዲኤፍ (PDF) ለማየትና ለማተም"
+              >
+                <Printer className="w-4 h-4 text-cyan-700" />
+                <span>ጠቅላላ ሰነድ (PDF)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportMasterGradeSheet}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 border border-slate-300 cursor-pointer"
+                title="በCSV ፋይል ለማውረድ"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>CSV ፋይል</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto max-h-96 overflow-y-auto border rounded-2xl">
@@ -816,6 +907,25 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
         </div>
       )}
 
+      {/* TAB 5: Graduation Verification & Alumni Archive */}
+      {activeTab === 'graduation' && (
+        <GraduationManager
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          availableYears={availableYears || [currentYear]}
+          currentUserRole="REGISTRAR"
+          officialConfig={officialConfig}
+          churchLogo={churchLogo}
+          onUpdateStudents={onUpdateStudents || (() => {})}
+          showNotify={showNotify}
+          onSaveGrades={onSaveGrades}
+          teachers={teachers}
+        />
+      )}
+
       {/* Excel Upload Modal for Registrar */}
       {isExcelUploadOpen && selectedCourse && (
         <ExcelUploadModal
@@ -840,6 +950,21 @@ export const RegistrarPortal: React.FC<RegistrarPortalProps> = ({
           officialConfig={officialConfig}
           churchLogo={churchLogo}
           onClose={() => setIsPdfModalOpen(false)}
+        />
+      )}
+
+      {/* Master Semester Grade Report PDF Modal for Registrar */}
+      {isMasterPdfOpen && (
+        <MasterGradeReportPdfModal
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          churchLogo={churchLogo}
+          officialConfig={officialConfig}
+          onClose={() => setIsMasterPdfOpen(false)}
+          initialProgram={programFilter}
         />
       )}
     </div>

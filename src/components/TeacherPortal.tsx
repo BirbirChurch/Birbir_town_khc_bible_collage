@@ -607,7 +607,7 @@ export const TeacherPortal: React.FC<TeacherPortalProps> = ({
             )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            የትምህርት ዘመን {currentYear} ዓ.ም ({currentSemester}ኛ ሴሚስተር) {isElevatedRole && '— ሁሉንም መምህራንና ኮርሶች ማስተዳደር ይችላሉ'}
+            የትምህርት ዘመን {currentYear} ዓ.ም ({currentSemester}ኛ ሴሚስተር - እንደ ኢትዮጵያ ዘመን አቆጣጠር) {isElevatedRole && '— ሁሉንም መምህራንና ኮርሶች ማስተዳደር ይችላሉ'}
           </p>
         </div>
 

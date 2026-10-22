@@ -7,16 +7,20 @@ import {
   Calendar,
   BookOpen,
   Award,
-  ShieldCheck
+  ShieldCheck,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import { Course, GradeBreakdown, OfficialSignaturesConfig, Student } from '../types.ts';
 import {
   getCourseAssessmentItems,
   getCriterionScore,
   getEffectiveGradeValues,
-  getGradeKey
+  getGradeKey,
+  resolveGradeBreakdown
 } from '../utils/gradeCalculations.ts';
 import { CHURCH_LOGO } from '../assets/logo.ts';
+import { exportCourseGradesToExcel } from '../utils/excelUtils.ts';
 
 interface CourseGradeReportPdfModalProps {
   course: Course;
@@ -47,7 +51,11 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
     window.print();
   };
 
-  // Grade statistics
+  const handleExportExcel = () => {
+    exportCourseGradesToExcel(course, students, grades, currentYear, currentSemester);
+  };
+
+  // Grade statistics using robust resolver so grades never come out empty
   let totalScoreSum = 0;
   let gradedCount = 0;
   const gradeDistribution: Record<string, number> = {
@@ -60,8 +68,7 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
   };
 
   enrolled.forEach((s) => {
-    const key = getGradeKey(s.uid, course.id, currentYear, currentSemester);
-    const g = grades[key] || { p1: 0, p2: 0, mid: 0, final: 0, att: 0 };
+    const g = resolveGradeBreakdown(grades, s.uid, course.id, currentYear, currentSemester, s.id);
     const eff = getEffectiveGradeValues(g, criteria);
     if (eff.hasAny) {
       totalScoreSum += eff.total;
@@ -101,7 +108,15 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleExportExcel}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3.5 py-2 rounded-xl font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              title="ውጤቱን በማይክሮሶፍት ኤክሴል ፋይል አውርድ"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
+              <span>ኤክሴል አውርድ (.xlsx)</span>
+            </button>
             <button
               onClick={handlePrint}
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2 rounded-xl font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
@@ -118,6 +133,7 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
             </button>
           </div>
         </div>
+
 
         {/* Printable Document Body */}
         <div className="p-6 sm:p-10 text-slate-900 bg-white max-h-[82vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-0 space-y-6">
@@ -145,13 +161,13 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
 
               <div className="text-right text-[11px] text-slate-600 border-l border-slate-200 pl-4 space-y-0.5">
                 <p>
-                  <span className="font-bold">የትምህርት ዘመን፦</span> {currentYear} ዓ.ም
+                  <span className="font-bold">የትምህርት ዘመን፦</span> {currentYear} ዓ.ም (እንደ ኢትዮጵያ ዘመን አቆጣጠር)
                 </p>
                 <p>
                   <span className="font-bold">ሴሚስተር፦</span> {currentSemester}ኛ ሴሚስተር
                 </p>
-                <p>
-                  <span className="font-bold">የታተመበት ቀን፦</span> {new Date().toLocaleDateString('en-GB')}
+                <p className="text-emerald-800 font-bold">
+                  🇪🇹 የኢትዮጵያ ዘመን አቆጣጠር (ዓ.ም)
                 </p>
               </div>
             </div>
@@ -167,8 +183,12 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 border border-slate-200 p-3.5 rounded-2xl text-xs">
             <div>
               <span className="text-[10px] text-slate-500 font-bold block">የትምህርት ዓይነት (Course):</span>
-              <strong className="text-slate-900">{course.name}</strong>
+              <strong className="text-slate-900">
+                {course.code && <span className="text-indigo-800 font-mono mr-1">[{course.code}]</span>}
+                {course.name}
+              </strong>
             </div>
+
             <div>
               <span className="text-[10px] text-slate-500 font-bold block">ፕሮግራም (Program):</span>
               <strong className="text-emerald-800">{course.program}</strong>
@@ -228,8 +248,7 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
               </thead>
               <tbody className="divide-y divide-slate-200 text-slate-800">
                 {enrolled.map((student, idx) => {
-                  const key = getGradeKey(student.uid, course.id, currentYear, currentSemester);
-                  const g = grades[key] || { p1: 0, p2: 0, mid: 0, final: 0, att: 0 };
+                  const g = resolveGradeBreakdown(grades, student.uid, course.id, currentYear, currentSemester, student.id);
                   const eff = getEffectiveGradeValues(g, criteria);
 
                   return (
@@ -347,13 +366,20 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
               <span className="text-[10px] font-bold text-slate-500 block uppercase">
                 2. የዋና ዲን ስምና ፊርማ (Academic Dean)
               </span>
-              <div className="h-10 border-b border-dashed border-slate-300 flex items-end">
-                <span className="font-bold text-slate-900">
+              <div className="h-12 border-b border-dashed border-slate-300 flex items-end justify-between">
+                <span className="font-bold text-slate-900 text-xs">
                   {officialConfig?.deanName || 'መ/ር ገላቲያ ድስታ'}
                 </span>
+                {officialConfig?.showDeanSignature && officialConfig.deanSignatureImage && (
+                  <img
+                    src={officialConfig.deanSignatureImage}
+                    alt="ዲን ፊርማ"
+                    className="h-10 w-auto object-contain max-w-[120px]"
+                  />
+                )}
               </div>
               <div className="flex justify-between text-[10px] text-slate-500">
-                <span>ፊርማ: _______________</span>
+                <span>ፊርማ: {officialConfig?.showDeanSignature && officialConfig.deanSignatureImage ? '✓ ተረጋግጧል' : '_______________'}</span>
                 <span>ቀን: ___________</span>
               </div>
             </div>
@@ -361,7 +387,7 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
             {/* Registrar Office & Church Stamp */}
             <div className="border border-slate-200 p-3.5 rounded-xl space-y-2 bg-white relative">
               <span className="text-[10px] font-bold text-slate-500 block uppercase">
-                3. የሬጅስትራር ጽ/ቤት ማህተም (Registrar Seal)
+                3. የሬጅስትራር ጽ/ቤት ማኅተም (Registrar Seal)
               </span>
               <div className="flex items-center justify-between">
                 <div>
@@ -369,15 +395,28 @@ export const CourseGradeReportPdfModal: React.FC<CourseGradeReportPdfModalProps>
                     {officialConfig?.registrarName || 'መ/ር አስራት አማኑኤል'}
                   </span>
                   <span className="text-[10px] text-slate-500">የሬጅስትራር ኃላፊ</span>
+                  {officialConfig?.showRegistrarSignature && officialConfig.registrarSignatureImage && (
+                    <img
+                      src={officialConfig.registrarSignatureImage}
+                      alt="ሬጅስትራር ፊርማ"
+                      className="h-8 w-auto object-contain mt-1"
+                    />
+                  )}
                 </div>
-                {/* Stamp */}
-                <div className="w-14 h-14 rounded-full border-2 border-emerald-800/40 p-1 flex items-center justify-center opacity-85">
-                  <img
-                    src={logoSrc}
-                    alt="ማህተም"
-                    className="w-full h-full object-contain"
-                  />
-                </div>
+                {/* Stamp: Enlarge, no circle border, clean display */}
+                {officialConfig?.showStamp !== false && (
+                  <div className="w-24 h-24 sm:w-28 sm:h-28 flex items-center justify-center opacity-95">
+                    <img
+                      src={
+                        officialConfig?.useChurchLogoAsStamp
+                          ? churchLogo || CHURCH_LOGO
+                          : officialConfig?.stampImage || churchLogo || CHURCH_LOGO
+                      }
+                      alt="ማኅተም"
+                      className="w-full h-full object-contain drop-shadow-sm select-none"
+                    />
+                  </div>
+                )}
               </div>
               <div className="text-[10px] text-slate-500 pt-1">
                 <span>ቀን: _______________</span>

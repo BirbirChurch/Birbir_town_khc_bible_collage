@@ -15,7 +15,8 @@ import { PhotoModal } from './components/PhotoModal.tsx';
 import { FirebaseStatusModal } from './components/FirebaseStatusModal.tsx';
 import { DailyVerseBanner } from './components/DailyVerseBanner.tsx';
 import { firebaseConfig } from './firebase.ts';
-import { getStoredChurchLogo, saveChurchLogo, DEFAULT_CHURCH_LOGO } from './assets/logo.ts';
+import { getStoredChurchLogo, saveChurchLogo, DEFAULT_CHURCH_LOGO, loadPersistentChurchLogo } from './assets/logo.ts';
+import { loadPersistentOfficialConfig } from './components/OfficialSignaturesManager.tsx';
 
 import {
   PRELOADED_COURSES,
@@ -65,7 +66,13 @@ export default function App() {
   const [availableYears, setAvailableYears] = useState<string[]>(() => {
     try {
       const stored = localStorage.getItem('bk_academic_years');
-      return stored ? JSON.parse(stored) : DEFAULT_ACADEMIC_YEARS;
+      if (stored) {
+        const parsed: string[] = JSON.parse(stored);
+        const combined = Array.from(new Set([...DEFAULT_ACADEMIC_YEARS, ...parsed]));
+        combined.sort((a, b) => parseInt(a) - parseInt(b));
+        return combined;
+      }
+      return DEFAULT_ACADEMIC_YEARS;
     } catch {
       return DEFAULT_ACADEMIC_YEARS;
     }
@@ -101,19 +108,23 @@ export default function App() {
     }
   });
 
-  // Grades state - initialized blank so teachers enter grades fresh as requested
+  // Grades state - initialized with preloaded grades so downloads are never blank
   const [grades, setGrades] = useState<Record<string, GradeBreakdown>>(() => {
     try {
-      const hasInitBlank = localStorage.getItem('bk_grades_init_blank_v2');
-      if (!hasInitBlank) {
-        localStorage.setItem('bk_grades_init_blank_v2', 'true');
-        localStorage.setItem('bk_grades', '{}');
-        return {};
-      }
       const stored = localStorage.getItem('bk_grades');
-      return stored ? JSON.parse(stored) : {};
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          return parsed;
+        }
+      }
+      const seeded = generateInitialSampleGrades(PRELOADED_STUDENTS, PRELOADED_COURSES);
+      try {
+        localStorage.setItem('bk_grades', JSON.stringify(seeded));
+      } catch (_) {}
+      return seeded;
     } catch {
-      return {};
+      return generateInitialSampleGrades(PRELOADED_STUDENTS, PRELOADED_COURSES);
     }
   });
 
@@ -201,6 +212,26 @@ export default function App() {
   const isInitialSyncDoneRef = useRef(false);
   const isRemoteUpdateRef = useRef(false);
 
+  // Restore logo and official stamp/signatures from IndexedDB on startup
+  useEffect(() => {
+    loadPersistentChurchLogo().then((logo) => {
+      if (logo && logo.trim().length > 20) {
+        setChurchLogo(logo);
+      }
+    });
+    loadPersistentOfficialConfig().then((cfg) => {
+      if (cfg) {
+        setOfficialConfig((prev) => ({
+          ...prev,
+          ...cfg,
+          stampImage: cfg.stampImage || prev.stampImage || '',
+          deanSignatureImage: cfg.deanSignatureImage || prev.deanSignatureImage || '',
+          registrarSignatureImage: cfg.registrarSignatureImage || prev.registrarSignatureImage || ''
+        }));
+      }
+    });
+  }, []);
+
   // Initialize and Live Real-time Sync from Firebase Firestore
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -230,11 +261,22 @@ export default function App() {
               saveChurchLogo(remoteState.churchLogo);
             }
             if (remoteState.officialConfig) {
-              setOfficialConfig(remoteState.officialConfig);
-              try {
-                localStorage.setItem('bk_official_config', JSON.stringify(remoteState.officialConfig));
-              } catch (_) {}
+              const remoteCfg = remoteState.officialConfig;
+              setOfficialConfig((prev) => {
+                const merged: OfficialSignaturesConfig = {
+                  ...prev,
+                  ...remoteCfg,
+                  stampImage: remoteCfg.stampImage || prev.stampImage || '',
+                  deanSignatureImage: remoteCfg.deanSignatureImage || prev.deanSignatureImage || '',
+                  registrarSignatureImage: remoteCfg.registrarSignatureImage || prev.registrarSignatureImage || ''
+                };
+                try {
+                  localStorage.setItem('bk_official_config', JSON.stringify(merged));
+                } catch (_) {}
+                return merged;
+              });
             }
+
             setTimeout(() => {
               isRemoteUpdateRef.current = false;
             }, 300);
@@ -308,10 +350,19 @@ export default function App() {
             },
             onOfficialConfigChange: (config) => {
               isRemoteUpdateRef.current = true;
-              setOfficialConfig(config);
-              try {
-                localStorage.setItem('bk_official_config', JSON.stringify(config));
-              } catch (_) {}
+              setOfficialConfig((prev) => {
+                const merged: OfficialSignaturesConfig = {
+                  ...prev,
+                  ...config,
+                  stampImage: config.stampImage || prev.stampImage || '',
+                  deanSignatureImage: config.deanSignatureImage || prev.deanSignatureImage || '',
+                  registrarSignatureImage: config.registrarSignatureImage || prev.registrarSignatureImage || ''
+                };
+                try {
+                  localStorage.setItem('bk_official_config', JSON.stringify(merged));
+                } catch (_) {}
+                return merged;
+              });
               setTimeout(() => { isRemoteUpdateRef.current = false; }, 300);
             }
           });
@@ -394,6 +445,23 @@ export default function App() {
           setChurchLogo(remoteState.churchLogo);
           saveChurchLogo(remoteState.churchLogo);
         }
+        if (remoteState.officialConfig) {
+          const remoteCfg = remoteState.officialConfig;
+          setOfficialConfig((prev) => {
+            const merged: OfficialSignaturesConfig = {
+              ...prev,
+              ...remoteCfg,
+              stampImage: remoteCfg.stampImage || prev.stampImage || '',
+              deanSignatureImage: remoteCfg.deanSignatureImage || prev.deanSignatureImage || '',
+              registrarSignatureImage: remoteCfg.registrarSignatureImage || prev.registrarSignatureImage || ''
+            };
+            try {
+              localStorage.setItem('bk_official_config', JSON.stringify(merged));
+            } catch (_) {}
+            return merged;
+          });
+        }
+
         setTimeout(() => {
           isRemoteUpdateRef.current = false;
         }, 300);
@@ -470,6 +538,25 @@ export default function App() {
     try {
       localStorage.setItem('bk_official_config', JSON.stringify(updated));
     } catch (_) {}
+    if (typeof window !== 'undefined' && window.indexedDB) {
+      try {
+        const req = indexedDB.open('BirbirKHC_Storage', 1);
+        req.onupgradeneeded = (ev: any) => {
+          const db = ev.target.result;
+          if (!db.objectStoreNames.contains('branding_assets')) {
+            db.createObjectStore('branding_assets');
+          }
+        };
+        req.onsuccess = () => {
+          try {
+            const db = req.result;
+            const tx = db.transaction('branding_assets', 'readwrite');
+            const store = tx.objectStore('branding_assets');
+            store.put(JSON.stringify(updated), 'bk_official_config');
+          } catch (_) {}
+        };
+      } catch (_) {}
+    }
     await syncOfficialConfigToFirestore(updated);
   };
 
@@ -588,7 +675,13 @@ export default function App() {
 
   // Add custom academic year
   const handleAddAcademicYear = (newYear: string) => {
-    setAvailableYears((prev) => [...prev, newYear]);
+    const clean = newYear.trim();
+    if (!clean) return;
+    setAvailableYears((prev) => {
+      const updated = Array.from(new Set([...prev, clean]));
+      updated.sort((a, b) => parseInt(a) - parseInt(b));
+      return updated;
+    });
   };
 
   // Add new teacher with key
@@ -918,6 +1011,11 @@ export default function App() {
                 onSaveOfficialConfig={handleSaveOfficialConfig}
                 onClearAllGrades={handleClearAllGradesToBlank}
                 onSaveGrades={(updated) => setGrades(updated)}
+                onYearChange={(y) => setCurrentYear(y)}
+                onSemesterChange={(s) => setCurrentSemester(s)}
+                onAddAcademicYear={handleAddAcademicYear}
+                availableYears={availableYears}
+                onUpdateStudents={(updated) => setStudents(updated)}
               />
             )}
 
@@ -948,6 +1046,7 @@ export default function App() {
                 onSaveOfficialConfig={handleSaveOfficialConfig}
                 onClearAllGrades={handleClearAllGradesToBlank}
                 churchLogo={churchLogo}
+                onUpdateStudents={(updated) => setStudents(updated)}
               />
             )}
 
@@ -959,6 +1058,7 @@ export default function App() {
                 photos={photos}
                 currentYear={currentYear}
                 currentSemester={currentSemester}
+                availableYears={availableYears}
                 onOpenAddStudent={() => setIsStudentModalOpen(true)}
                 onOpenPhotoModal={(sid) => setPhotoModalStudentUid(sid)}
                 onSelectPrintTranscript={(s) => setTranscriptStudent(s)}
@@ -967,7 +1067,10 @@ export default function App() {
                 onSaveGrades={(updated) => setGrades(updated)}
                 officialConfig={officialConfig}
                 churchLogo={churchLogo}
+                onUpdateStudents={(updated) => setStudents(updated)}
+                teachers={teachers}
               />
+
             )}
 
             {effectiveView === 'TEACHER' && (
@@ -997,6 +1100,8 @@ export default function App() {
                 currentYear={currentYear}
                 currentSemester={currentSemester}
                 gradePublished={gradePublished}
+                officialConfig={officialConfig}
+                churchLogo={churchLogo}
                 onOpenTranscript={() => setTranscriptStudent(activeStudent)}
               />
             )}

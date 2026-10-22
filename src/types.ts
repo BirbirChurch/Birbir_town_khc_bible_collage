@@ -10,6 +10,10 @@ export interface CurrentUser {
 
 export type ProgramType = 'Degree' | 'Diploma';
 
+export type DegreeTrackType = '2_YEAR' | '3_YEAR'; // 2_YEAR = ቅድመ-ዲፕሎማ ላላቸው (4 ሴሚስተር), 3_YEAR = መደበኛ (5-6 ሴሚስተር)
+
+export type GraduationStatus = 'ACTIVE' | 'CANDIDATE' | 'GRADUATED';
+
 export interface Student {
   uid: string; // Unique identifier (e.g. 'dip_201901', 'deg_201901')
   id: string;  // Official Student ID
@@ -18,6 +22,19 @@ export interface Student {
   program: ProgramType;
   phone?: string;
   photoUrl?: string;
+  admissionYear?: string; // የገቡበት የትምህርት ዘመን (እንደ ኢትዮጵያ ዘመን አቆጣጠር - ምሳሌ: 2018, 2019 ዓ.ም)
+  currentStudyYear?: number; // 1 = 1ኛ ዓመት, 2 = 2ኛ ዓመት, 3 = 3ኛ ዓመት
+  degreeTrack?: DegreeTrackType; // ለድግሪ ተማሪዎች: የ2 ዓመት (ቀድሞ ዲፕሎማ ያላቸው) ወይስ መደበኛ የ3 ዓመት
+  priorDiploma?: boolean; // ቀድሞ የመጽሐፍ ቅዱስ ዲፕሎማ አላቸው/የላቸውም
+  graduationStatus?: GraduationStatus; // ACTIVE (በመማር ላይ), CANDIDATE (ተማራቂ), GRADUATED (የተመረቀ)
+  graduationYear?: string; // የተመረቁበት የትምህርት ዘመን (ዓ.ም)
+  graduationSemester?: string; // የተመረቁበት ሴሚስተር
+  graduationApprovedBy?: {
+    admin?: boolean;     // የዋና አድሚን ይሁንታ
+    dean?: boolean;      // የዋና ዲን ይሁንታ
+    registrar?: boolean; // የሪጅስተራል ይሁንታ
+  };
+  graduationRemarks?: string;
 }
 
 export interface AssessmentCriterionItem {
@@ -47,9 +64,13 @@ export interface Course {
   teacher: string;
   schedule: string; // e.g. "መስከረም 11 – 25/2019"
   credits: number;
+  code?: string; // e.g. "DIP-101", "BTH-201"
+  academicYear?: string; // e.g. "2018", "2019"
+  semester?: string; // e.g. "1", "2"
   remarks?: string;
   assessmentConfig?: CourseAssessmentConfig;
 }
+
 
 export interface GradeBreakdown {
   p1: number;           // ክፍል 1 (max 20 default)

@@ -32,18 +32,23 @@ import {
   UserX,
   X,
   Sparkles,
-  Save
+  Save,
+  Calendar,
+  Plus
 } from 'lucide-react';
-import { GradingScaleItem, Student, Course, GradeBreakdown, OfficialSignaturesConfig } from '../types.ts';
+import { GradingScaleItem, Student, Course, GradeBreakdown, OfficialSignaturesConfig, ProgramType } from '../types.ts';
 import { OFFICIAL_GRADING_SCALE, generateTeacherKey } from '../data/initialData.ts';
 import { FirebaseConnectionReport } from '../services/firebaseSync.ts';
 import { DEFAULT_CHURCH_LOGO } from '../assets/logo.ts';
 import { OfficialSignaturesManager } from './OfficialSignaturesManager.tsx';
 import { ExcelUploadModal } from './ExcelUploadModal.tsx';
 import { CourseGradeReportPdfModal } from './CourseGradeReportPdfModal.tsx';
-import { exportCourseGradesToExcel } from '../utils/excelUtils.ts';
+import { exportCourseGradesToExcel, exportMasterSemesterGradeSheetToExcel } from '../utils/excelUtils.ts';
 import { getCourseAssessmentItems, getCriterionScore, getEffectiveGradeValues, getGradeKey } from '../utils/gradeCalculations.ts';
 import { getCriterionColor } from './TeacherPortal.tsx';
+import { GraduationManager } from './GraduationManager.tsx';
+import { MasterGradeReportPdfModal } from './MasterGradeReportPdfModal.tsx';
+import { compressImage } from '../utils/imageCompressor.ts';
 
 interface AdminPortalProps {
   systemLocked: boolean;
@@ -80,6 +85,11 @@ interface AdminPortalProps {
   onSaveOfficialConfig: (updated: OfficialSignaturesConfig) => void;
   onClearAllGrades?: () => void;
   onSaveGrades?: (updatedGrades: Record<string, GradeBreakdown>) => void;
+  onYearChange?: (year: string) => void;
+  onSemesterChange?: (sem: string) => void;
+  onAddAcademicYear?: (year: string) => void;
+  availableYears?: string[];
+  onUpdateStudents?: (updatedStudents: Student[]) => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -116,9 +126,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   officialConfig,
   onSaveOfficialConfig,
   onClearAllGrades,
-  onSaveGrades
+  onSaveGrades,
+  onYearChange,
+  onSemesterChange,
+  onAddAcademicYear,
+  availableYears = ['2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'],
+  onUpdateStudents
 }) => {
-  const [adminTab, setAdminTab] = useState<'security' | 'teachers' | 'courses' | 'students' | 'official_signatures'>('security');
+  const [adminTab, setAdminTab] = useState<'security' | 'academic_calendar' | 'teachers' | 'courses' | 'students' | 'graduation' | 'official_signatures'>('security');
   const [teacherSearchTerm, setTeacherSearchTerm] = useState('');
   const [teacherFilter, setTeacherFilter] = useState<'all' | 'active' | 'locked'>('all');
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -126,11 +141,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [copiedTeacher, setCopiedTeacher] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
 
-  // Admin Course Grade Entry (Excel Upload, Download, PDF) State
+  // Academic Year Creation State
+  const [newYearInput, setNewYearInput] = useState('');
+  const [showAddYearModal, setShowAddYearModal] = useState(false);
+
+  const handleCreateYear = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = newYearInput.trim();
+    if (!clean) return;
+    if (availableYears.includes(clean)) {
+      showNotify?.(`የትምህርት ዘመን ${clean} አስቀድሞ አለ!`, 'warning');
+      return;
+    }
+    onAddAcademicYear?.(clean);
+    onYearChange?.(clean);
+    setNewYearInput('');
+    setShowAddYearModal(false);
+    showNotify?.(`አዲስ የትምህርት ዘመን (${clean} ዓ.ም - ኢ.ዘ.አ) በዋና አድሚን ውሳኔ ተጨምሯል!`, 'success');
+  };
+
   const [adminSelectedCourseId, setAdminSelectedCourseId] = useState<string>(courses[0]?.id || '');
   const [isExcelUploadOpen, setIsExcelUploadOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isMasterPdfOpen, setIsMasterPdfOpen] = useState(false);
   const [adminLocalGrades, setAdminLocalGrades] = useState<Record<string, GradeBreakdown>>({});
+
+  // Admin Students Tab Filters
+  const [adminStudentSearch, setAdminStudentSearch] = useState('');
+  const [adminStudentProgFilter, setAdminStudentProgFilter] = useState<'ALL' | ProgramType>('ALL');
+  const [adminStudentYearFilter, setAdminStudentYearFilter] = useState<'ALL' | number>('ALL');
+  const [adminStudentStatusFilter, setAdminStudentStatusFilter] = useState<'ALL' | 'ACTIVE' | 'CANDIDATE' | 'GRADUATED'>('ALL');
 
   const adminSelectedCourse = courses.find((c) => c.id === adminSelectedCourseId) || courses[0];
   const adminEnrolledStudents = adminSelectedCourse
@@ -252,17 +292,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        onUpdateChurchLogo(dataUrl);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImage(file, 512, 0.88, true);
+      onUpdateChurchLogo(compressed);
+    } catch (err) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (dataUrl) {
+          onUpdateChurchLogo(dataUrl);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
     if (logoInputRef.current) logoInputRef.current.value = '';
   };
 
@@ -367,7 +412,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       </div>
 
       {/* Admin Tabs */}
-      <div className="flex border-b border-slate-200 gap-2">
+      <div className="flex border-b border-slate-200 gap-2 flex-wrap">
+        <button
+          onClick={() => setAdminTab('academic_calendar')}
+          className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            adminTab === 'academic_calendar'
+              ? 'border-emerald-700 text-emerald-800 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Calendar className="w-4 h-4 text-emerald-700" />
+          <span>የትምህርት ዘመን መወሰኛ (2019–2030 ዓ.ም)</span>
+        </button>
+
+        <button
+          onClick={() => setAdminTab('graduation')}
+          className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            adminTab === 'graduation'
+              ? 'border-emerald-700 text-emerald-800 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Award className="w-4 h-4 text-amber-500" />
+          <span>የተማራቂዎች ማረጋገጫና ማህደር</span>
+        </button>
+
         <button
           onClick={() => setAdminTab('security')}
           className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
@@ -428,6 +497,213 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <span>ይፋዊ ማኅተምና ፊርማ</span>
         </button>
       </div>
+
+      {/* TAB: Academic Calendar Management (የዋና አድሚን ውሳኔ) */}
+      {adminTab === 'academic_calendar' && (
+        <div className="space-y-6">
+          {/* Top Banner */}
+          <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-emerald-900 text-white rounded-3xl p-6 shadow-md border border-emerald-800/80 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xl font-bold flex items-center gap-2.5 text-amber-300">
+                  <Calendar className="w-6 h-6 text-amber-400" />
+                  <span>የትምህርት ዘመን መወሰኛና አስተዳደር (Academic Calendar Control)</span>
+                </h3>
+                <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                  🇪🇹 እንደ ኢትዮጵያ ዘመን አቆጣጠር (ዓ.ም)
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-emerald-100/90 mt-1 max-w-2xl">
+                የትምህርት ዘመን መወሰን የዋና አድሚን ኃላፊነት ሲሆን፣ ከ2019 እስከ 2030 ዓ.ም ተዘጋጅቷል። አስፈላጊ ሲሆን አዳዲስ ዓመታት መጨመር ይቻላል። በእያንዳንዱ ዓመት 1ኛ እና 2ኛ ሴሚስተር ይገኛሉ።
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowAddYearModal(true)}
+              className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs px-4 py-2.5 rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>አዲስ የትምህርት ዘመን ጨምር</span>
+            </button>
+          </div>
+
+          {/* Active Term Selector Card */}
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-6">
+            <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700" />
+              <span>በሲስተሙ ላይ በሥራ ላይ የዋለ (ወቅታዊ) የትምህርት ዘመንና ሴሚስተር</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 space-y-2">
+                <label className="block text-xs font-bold text-emerald-950">
+                  ወቅታዊ የትምህርት ዘመን (Active Academic Year):
+                </label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={currentYear}
+                    onChange={(e) => onYearChange?.(e.target.value)}
+                    className="w-full p-2.5 text-sm font-bold border rounded-xl bg-white border-emerald-300 text-emerald-950 focus:ring-2 focus:ring-emerald-700 cursor-pointer shadow-xs"
+                  >
+                    {availableYears.map((y) => (
+                      <option key={y} value={y}>
+                        {y} ዓ.ም (እንደ ኢትዮጵያ ዘመን አቆጣጠር)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-[11px] text-emerald-800">
+                  የተመረጠው የትምህርት ዘመን በሁሉም መምህራን፣ ዲን፣ ሪጅስተራልና ተማሪዎች ገጽ ላይ በቀጥታ ይሰራል
+                </p>
+              </div>
+
+              <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-2">
+                <label className="block text-xs font-bold text-amber-950">
+                  ወቅታዊ ሴሚስተር (Active Semester):
+                </label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={currentSemester}
+                    onChange={(e) => onSemesterChange?.(e.target.value)}
+                    className="w-full p-2.5 text-sm font-bold border rounded-xl bg-white border-amber-300 text-amber-950 focus:ring-2 focus:ring-amber-500 cursor-pointer shadow-xs"
+                  >
+                    <option value="1">1ኛ ሴሚስተር (Semester 1)</option>
+                    <option value="2">2ኛ ሴሚስተር (Semester 2)</option>
+                  </select>
+                </div>
+                <p className="text-[11px] text-amber-800">
+                  በእያንዳንዱ የትምህርት ዘመን 1ኛ ሴሚስተር እና 2ኛ ሴሚስተር ይገኛሉ
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Academic Policy Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+              <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs uppercase tracking-wider">
+                <Award className="w-4 h-4 text-emerald-600" />
+                <span>የዲፕሎማ ፕሮግራም (Diploma)</span>
+              </div>
+              <h5 className="font-extrabold text-slate-900 text-sm">በ2 ዓመት (4 ሴሚስተር)</h5>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                የዲፕሎማ ተማሪዎች በ2 ዓመት ማለትም በአራት ሴሚስተር ይመረቃሉ። በዚህ ዓመት 10 የዲፕሎማ ተማሪዎች በ2ኛ ዓመት ላይ እየተማሩ የሚገኙ ተማራቂዎች ናቸው።
+              </p>
+              <div className="pt-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg">
+                1ኛ ዓመት (Sem 1 & 2) ➔ 2ኛ ዓመት (Sem 3 & 4) ➔ ምርቃት
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+              <div className="flex items-center gap-2 text-indigo-800 font-bold text-xs uppercase tracking-wider">
+                <Award className="w-4 h-4 text-indigo-600" />
+                <span>የድግሪ ፕሮግራም (ቀድሞ ዲፕሎማ)</span>
+              </div>
+              <h5 className="font-extrabold text-slate-900 text-sm">በ2 ዓመት (4 ሴሚስተር)</h5>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                ቀድሞ የመጽሐፍ ቅዱስ ዲፕሎማ ያላቸው የድግሪ ተማሪዎች የትምህርት ዝግጅታቸው ታይቶ በ2 ዓመት (4 ሴሚስተር) ይመረቃሉ።
+              </p>
+              <div className="pt-1 text-[11px] font-bold text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                የቅድመ-ዲፕሎማ ክሬዲት ታሳቢ ➔ 4 ሴሚስተር ➔ ምርቃት
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+              <div className="flex items-center gap-2 text-purple-800 font-bold text-xs uppercase tracking-wider">
+                <Award className="w-4 h-4 text-purple-600" />
+                <span>መደበኛ ድግሪ (Regular Degree)</span>
+              </div>
+              <h5 className="font-extrabold text-slate-900 text-sm">በ3 ዓመት (5 ወይም 6 ሴሚስተር)</h5>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                መደበኛ የድግሪ ተማሪ እንደየትምህርት ዝግጅታቸው በ3 ዓመት (በ5 ሴሚስተር ወይም ዝቅተኛ ውጤት ካመጡ በ6 ሴሚስተር) ይመረቃሉ።
+              </p>
+              <div className="pt-1 text-[11px] font-bold text-purple-800 bg-purple-50 px-2.5 py-1 rounded-lg">
+                1ኛ ዓመት ➔ 2ኛ ዓመት ➔ 3ኛ ዓመት (5-6 ሴሚስተር)
+              </div>
+            </div>
+          </div>
+
+          {/* All Configured Years Matrix (2019 - 2030 ዓ.ም እና ተጨማሪ) */}
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b pb-3">
+              <div>
+                <h4 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-emerald-700" />
+                  <span>የትምህርት ዘመናት ዝርዝር ሰሌዳ (ከ2019 እስከ 2030 ዓ.ም)</span>
+                </h4>
+                <p className="text-xs text-slate-500">
+                  ሁሉንም ዓመታት መመልከት፣ ወቅታዊ ማድረግ ወይም አዲስ የትምህርት ዘመን መጨመር
+                </p>
+              </div>
+
+              <span className="text-xs bg-slate-100 text-slate-700 px-3 py-1 rounded-xl font-bold">
+                ጠቅላላ ዓመታት: {availableYears.length}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {availableYears.map((yr) => {
+                const isActive = yr === currentYear;
+                return (
+                  <div
+                    key={yr}
+                    className={`p-3.5 rounded-2xl border text-center transition-all ${
+                      isActive
+                        ? 'bg-emerald-50 border-emerald-500 shadow-sm ring-2 ring-emerald-600/30'
+                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex justify-center mb-1.5">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isActive ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {isActive ? 'የነቃ (Active)' : 'ኢ.ዘ.አ'}
+                      </span>
+                    </div>
+
+                    <h5 className="font-extrabold text-base text-slate-900 font-mono">
+                      {yr} ዓ.ም
+                    </h5>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      1ኛ እና 2ኛ ሴሚስተር
+                    </p>
+
+                    {!isActive && (
+                      <button
+                        type="button"
+                        onClick={() => onYearChange?.(yr)}
+                        className="mt-2.5 w-full text-[11px] font-bold bg-white hover:bg-emerald-600 hover:text-white text-emerald-800 border border-emerald-300 py-1 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                      >
+                        ወቅታዊ አድርግ
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: Graduation Approvals & Alumni Archive */}
+      {adminTab === 'graduation' && (
+        <GraduationManager
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          availableYears={availableYears}
+          currentUserRole="ADMIN"
+          officialConfig={officialConfig}
+          churchLogo={churchLogo}
+          onUpdateStudents={onUpdateStudents || (() => {})}
+          onSaveGrades={onSaveGrades}
+          showNotify={showNotify || (() => {})}
+          teachers={teachers}
+        />
+
+      )}
 
       {/* TAB 1: Security & Passwords */}
       {adminTab === 'security' && (
@@ -1133,6 +1409,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <span>ይፋዊ ሰነድ (PDF)</span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    exportMasterSemesterGradeSheetToExcel(
+                      students,
+                      courses,
+                      grades,
+                      currentYear,
+                      currentSemester
+                    );
+                    showNotify?.(`የትምህርት ዘመን ${currentYear} ሰሚስተር ${currentSemester} ጠቅላላ ውጤት ኤክሴል ተዘጋጅቶ ወርዷል!`, 'success');
+                  }}
+
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-950 border border-indigo-300 text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="የሁሉም ተማሪዎች የሰሚስተሩን ጠቅላላ ውጤት ዝርዝር በኤክሴል (.xlsx) ለማውረድ"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-700" />
+                  <span>ጠቅላላ ውጤት ኤክሴል</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsMasterPdfOpen(true)}
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-950 border border-purple-300 text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="የሁሉንም ተማሪዎች ጠቅላላ የሰሚስተር ውጤት ሉህ (Master Sheet) በፒዲኤፍ ለማየትና ለማተም"
+                >
+                  <Printer className="w-3.5 h-3.5 text-purple-700" />
+                  <span>ጠቅላላ ሰነድ (PDF)</span>
+                </button>
+
                 {onSaveGrades && (
                   <button
                     type="button"
@@ -1243,73 +1549,168 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       )}
 
       {/* TAB 3: Students & Individual Passwords */}
-      {adminTab === 'students' && (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-6 space-y-4">
-          <div className="flex justify-between items-center border-b pb-3">
-            <div>
-              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <Users className="w-5 h-5 text-emerald-700" />
-                <span>የተማሪዎች ማህደር፣ ውጤት እና የግል የይለፍ ቃሎች ({students.length})</span>
-              </h3>
-              <p className="text-xs text-slate-500">
-                አድሚን የማንኛውንም ተማሪ የግል መግቢያ ቁልፍ መቀየርና ትራንስክሪፕት ማዘጋጀት ይችላል
-              </p>
+      {adminTab === 'students' && (() => {
+        const filteredStudents = students.filter((s) => {
+          const matchesSearch =
+            s.name.toLowerCase().includes(adminStudentSearch.toLowerCase()) ||
+            s.id.toLowerCase().includes(adminStudentSearch.toLowerCase());
+          const matchesProg = adminStudentProgFilter === 'ALL' || s.program === adminStudentProgFilter;
+          const matchesYear = adminStudentYearFilter === 'ALL' || (s.currentStudyYear || 1) === adminStudentYearFilter;
+          const matchesStatus = adminStudentStatusFilter === 'ALL' || (s.graduationStatus || 'ACTIVE') === adminStudentStatusFilter;
+          return matchesSearch && matchesProg && matchesYear && matchesStatus;
+        });
+
+        return (
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200/80 p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-emerald-700" />
+                  <span>የተማሪዎች ማህደር፣ ደረጃ፣ ውጤት እና የግል የይለፍ ቃሎች ({students.length})</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  አድሚን የተማሪዎችን ዓመት/ደረጃ መቆጣጠር፣ የግል መግቢያ ቁልፍ መቀየርና ትራንስክሪፕት ማዘጋጀት ይችላል
+                </p>
+              </div>
+
+              <span className="text-xs bg-slate-100 text-slate-700 px-3 py-1 rounded-xl font-bold">
+                የተጣሩ: {filteredStudents.length} / {students.length}
+              </span>
+            </div>
+
+            {/* Filters Toolbar */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="በስም ወይም በመለያ ቁጥር ፈልግ..."
+                  value={adminStudentSearch}
+                  onChange={(e) => setAdminStudentSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 text-xs border rounded-xl bg-white border-slate-300 focus:ring-2 focus:ring-emerald-700"
+                />
+              </div>
+
+              <select
+                value={adminStudentProgFilter}
+                onChange={(e) => setAdminStudentProgFilter(e.target.value as any)}
+                className="p-1.5 text-xs font-semibold border rounded-xl bg-white border-slate-300 focus:ring-2 focus:ring-emerald-700 cursor-pointer"
+              >
+                <option value="ALL">ፕሮግራም: ሁሉም</option>
+                <option value="Degree">ድግሪ (Degree)</option>
+                <option value="Diploma">ዲፕሎማ (Diploma)</option>
+              </select>
+
+              <select
+                value={adminStudentYearFilter}
+                onChange={(e) => setAdminStudentYearFilter(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+                className="p-1.5 text-xs font-semibold border rounded-xl bg-white border-slate-300 focus:ring-2 focus:ring-emerald-700 cursor-pointer"
+              >
+                <option value="ALL">ደረጃ: ሁሉም ዓመታት</option>
+                <option value={1}>1ኛ ዓመት (Year 1)</option>
+                <option value={2}>2ኛ ዓመት (Year 2)</option>
+                <option value={3}>3ኛ ዓመት (Year 3)</option>
+              </select>
+
+              <select
+                value={adminStudentStatusFilter}
+                onChange={(e) => setAdminStudentStatusFilter(e.target.value as any)}
+                className="p-1.5 text-xs font-semibold border rounded-xl bg-white border-slate-300 focus:ring-2 focus:ring-emerald-700 cursor-pointer"
+              >
+                <option value="ALL">ሁኔታ: ሁሉም</option>
+                <option value="ACTIVE">በመማር ላይ (Active)</option>
+                <option value="CANDIDATE">ተማራቂ (Candidate)</option>
+                <option value="GRADUATED">የተመረቀ (Graduated)</option>
+              </select>
+            </div>
+
+            <div className="overflow-x-auto max-h-96 overflow-y-auto border rounded-2xl">
+              <table className="w-full text-left text-xs text-slate-600">
+                <thead className="bg-slate-100/90 sticky top-0 font-bold uppercase text-[10px]">
+                  <tr>
+                    <th className="p-2.5">ተ.ቁ</th>
+                    <th className="p-2.5">ID</th>
+                    <th className="p-2.5">የተማሪ ስም</th>
+                    <th className="p-2.5">ጾታ</th>
+                    <th className="p-2.5">ፕሮግራም</th>
+                    <th className="p-2.5">ደረጃ / ዓመት</th>
+                    <th className="p-2.5">የትምህርት መንገድ</th>
+                    <th className="p-2.5">ሁኔታ</th>
+                    <th className="p-2.5">የግል ቁልፍ</th>
+                    <th className="p-2.5 text-right">ተግባር</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredStudents.map((s, idx) => (
+                    <tr key={s.uid} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
+                      <td className="p-2.5 font-mono font-bold text-slate-800">{s.id}</td>
+                      <td className="p-2.5">
+                        <span className="font-bold text-slate-900 block">{s.name}</span>
+                        <span className="text-[10px] text-slate-400">የገቡበት: {s.admissionYear || '2019'} ዓ.ም</span>
+                      </td>
+                      <td className="p-2.5 text-slate-600">{s.gender}</td>
+                      <td className="p-2.5">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.program === 'Degree' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {s.program}
+                        </span>
+                      </td>
+                      <td className="p-2.5">
+                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
+                          s.currentStudyYear === 2 ? 'bg-amber-100 text-amber-950 border border-amber-300' : s.currentStudyYear === 3 ? 'bg-purple-100 text-purple-900' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {s.currentStudyYear ? `${s.currentStudyYear}ኛ ዓመት` : '1ኛ ዓመት'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-[11px] text-slate-600">
+                        {s.program === 'Diploma' ? (
+                          <span>2 ዓመት (4 ሴሚስተር)</span>
+                        ) : s.degreeTrack === '2_YEAR' || s.priorDiploma ? (
+                          <span className="font-bold text-indigo-700">2 ዓመት (ቅድመ ዲፕሎማ)</span>
+                        ) : (
+                          <span>3 ዓመት መደበኛ (5-6 ሴሚስተር)</span>
+                        )}
+                      </td>
+                      <td className="p-2.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          s.graduationStatus === 'GRADUATED'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : s.graduationStatus === 'CANDIDATE'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {s.graduationStatus === 'GRADUATED' ? 'የተመረቀ' : s.graduationStatus === 'CANDIDATE' ? 'ተማራቂ' : 'በመማር ላይ'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 font-mono text-xs text-emerald-800 font-bold">
+                        •••••• ({userPasswords[s.uid] || s.id})
+                      </td>
+                      <td className="p-2.5 text-right space-x-1 space-x-reverse whitespace-nowrap">
+                        <button
+                          onClick={() => onOpenPasswordModal(s.uid, s.name)}
+                          className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] px-2.5 py-1 rounded-lg font-bold cursor-pointer"
+                          title="ቁልፍ ቀይር"
+                        >
+                          ቁልፍ ቀይር
+                        </button>
+                        <button
+                          onClick={() => onSelectPrintTranscript(s)}
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] px-2.5 py-1 rounded-lg font-bold cursor-pointer"
+                          title="ትራንስክሪፕት"
+                        >
+                          ትራንስክሪፕት
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-
-          <div className="overflow-x-auto max-h-96 overflow-y-auto">
-            <table className="w-full text-left text-xs text-slate-600">
-              <thead className="bg-slate-100 sticky top-0 font-bold uppercase text-[11px]">
-                <tr>
-                  <th className="p-2.5">ተ.ቁ</th>
-                  <th className="p-2.5">ID</th>
-                  <th className="p-2.5">የተማሪ ስም</th>
-                  <th className="p-2.5">ጾታ</th>
-                  <th className="p-2.5">ፕሮግራም</th>
-                  <th className="p-2.5">የግል ቁልፍ</th>
-                  <th className="p-2.5 text-right">ተግባር</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {students.map((s, idx) => (
-                  <tr key={s.uid} className="hover:bg-slate-50">
-                    <td className="p-2.5 font-mono text-slate-400">{idx + 1}</td>
-                    <td className="p-2.5 font-mono font-bold text-slate-800">{s.id}</td>
-                    <td className="p-2.5 font-bold text-slate-900">{s.name}</td>
-                    <td className="p-2.5 text-slate-600">{s.gender}</td>
-                    <td className="p-2.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        s.program === 'Degree' ? 'bg-indigo-100 text-indigo-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {s.program}
-                      </span>
-                    </td>
-                    <td className="p-2.5 font-mono text-xs text-emerald-800 font-bold">
-                      •••••• ({userPasswords[s.uid] || s.id})
-                    </td>
-                    <td className="p-2.5 text-right space-x-1 space-x-reverse">
-                      <button
-                        onClick={() => onOpenPasswordModal(s.uid, s.name)}
-                        className="bg-amber-500 hover:bg-amber-600 text-white text-[10px] px-2.5 py-1 rounded-lg font-bold cursor-pointer"
-                        title="ቁልፍ ቀይር"
-                      >
-                        ቁልፍ ቀይር
-                      </button>
-                      <button
-                        onClick={() => onSelectPrintTranscript(s)}
-                        className="bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] px-2.5 py-1 rounded-lg font-bold cursor-pointer"
-                        title="ትራንስክሪፕት"
-                      >
-                        ትራንስክሪፕት
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal: Add New Teacher with Custom or Auto-generated Key */}
       {showAddTeacherModal && (
@@ -1562,6 +1963,74 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           churchLogo={churchLogo}
           onClose={() => setIsPdfModalOpen(false)}
         />
+      )}
+
+      {/* Official Master PDF Grade Sheet Modal for Admin */}
+      {isMasterPdfOpen && (
+        <MasterGradeReportPdfModal
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          officialConfig={officialConfig}
+          churchLogo={churchLogo}
+          onClose={() => setIsMasterPdfOpen(false)}
+        />
+      )}
+
+      {/* Modal: Add Custom Academic Year (የዋና አድሚን ውሳኔ) */}
+      {showAddYearModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-emerald-700" />
+                <span>አዲስ የትምህርት ዘመን መመዝገቢያ</span>
+              </h3>
+              <button
+                onClick={() => setShowAddYearModal(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateYear} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  የትምህርት ዘመን (በኢትዮጵያ ዘመን አቆጣጠር ዓ.ም)
+                </label>
+                <input
+                  type="text"
+                  placeholder="ምሳሌ: 2031 ወይም 2032"
+                  value={newYearInput}
+                  onChange={(e) => setNewYearInput(e.target.value)}
+                  className="w-full p-2.5 border rounded-xl bg-slate-50 border-slate-300 font-mono font-bold focus:ring-2 focus:ring-emerald-700 text-slate-900"
+                  required
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  አዲሱ የትምህርት ዘመን በ1ኛ እና 2ኛ ሴሚስተር በሲስተሙ ይመዘገባል
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddYearModal(false)}
+                  className="px-4 py-2 border rounded-xl hover:bg-slate-100 font-semibold text-slate-700 cursor-pointer"
+                >
+                  ሰርዝ
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-800 hover:bg-emerald-900 text-white font-bold rounded-xl shadow-xs cursor-pointer"
+                >
+                  መዝግብና ወቅታዊ አድርግ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

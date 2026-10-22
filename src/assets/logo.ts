@@ -94,22 +94,95 @@ export const DEFAULT_CHURCH_LOGO = `data:image/svg+xml;utf8,${encodeURIComponent
 
 export const getStoredChurchLogo = (): string => {
   if (typeof window !== 'undefined') {
-    const custom = localStorage.getItem('birbir_church_logo');
-    if (custom && custom.trim().length > 20) {
-      return custom;
-    }
+    try {
+      const custom = localStorage.getItem('birbir_church_logo');
+      if (custom && custom.trim().length > 20) {
+        return custom;
+      }
+    } catch (_) {}
   }
   return DEFAULT_CHURCH_LOGO;
 };
 
 export const saveChurchLogo = (logoDataUrl: string): void => {
   if (typeof window !== 'undefined') {
-    if (logoDataUrl) {
-      localStorage.setItem('birbir_church_logo', logoDataUrl);
-    } else {
-      localStorage.removeItem('birbir_church_logo');
+    try {
+      if (logoDataUrl) {
+        localStorage.setItem('birbir_church_logo', logoDataUrl);
+      } else {
+        localStorage.removeItem('birbir_church_logo');
+      }
+    } catch (e) {
+      console.warn('localStorage save logo quota note:', e);
     }
+
+    // Also save into IndexedDB for permanent storage that never gets wiped by localStorage quotas
+    try {
+      if (window.indexedDB) {
+        const req = indexedDB.open('BirbirKHC_Storage', 1);
+        req.onupgradeneeded = (e: any) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('branding_assets')) {
+            db.createObjectStore('branding_assets');
+          }
+        };
+        req.onsuccess = () => {
+          try {
+            const db = req.result;
+            const tx = db.transaction('branding_assets', 'readwrite');
+            const store = tx.objectStore('branding_assets');
+            if (logoDataUrl) {
+              store.put(logoDataUrl, 'birbir_church_logo');
+            } else {
+              store.delete('birbir_church_logo');
+            }
+          } catch (_) {}
+        };
+      }
+    } catch (_) {}
   }
+};
+
+export const loadPersistentChurchLogo = async (): Promise<string> => {
+  if (typeof window === 'undefined') return DEFAULT_CHURCH_LOGO;
+  try {
+    if (window.indexedDB) {
+      const idbLogo = await new Promise<string | null>((resolve) => {
+        try {
+          const req = indexedDB.open('BirbirKHC_Storage', 1);
+          req.onupgradeneeded = (e: any) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('branding_assets')) {
+              db.createObjectStore('branding_assets');
+            }
+          };
+          req.onsuccess = () => {
+            try {
+              const db = req.result;
+              const tx = db.transaction('branding_assets', 'readonly');
+              const store = tx.objectStore('branding_assets');
+              const getReq = store.get('birbir_church_logo');
+              getReq.onsuccess = () => resolve(getReq.result || null);
+              getReq.onerror = () => resolve(null);
+            } catch {
+              resolve(null);
+            }
+          };
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+
+      if (idbLogo && idbLogo.trim().length > 20) {
+        try {
+          localStorage.setItem('birbir_church_logo', idbLogo);
+        } catch (_) {}
+        return idbLogo;
+      }
+    }
+  } catch (_) {}
+  return getStoredChurchLogo();
 };
 
 export const CHURCH_LOGO = DEFAULT_CHURCH_LOGO;

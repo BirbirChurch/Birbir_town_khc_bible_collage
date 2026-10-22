@@ -141,8 +141,14 @@ export const TranscriptModal: React.FC<TranscriptModalProps> = ({
                 </span>
               </p>
               <p>
+                <span className="text-slate-500 font-normal">ደረጃና መንገድ:</span>{' '}
+                <span className="font-bold text-slate-900">
+                  {student.currentStudyYear ? `${student.currentStudyYear}ኛ ዓመት` : '1ኛ ዓመት'} — {student.program === 'Diploma' ? '2 ዓመት (4 ሴሚስተር)' : student.degreeTrack === '2_YEAR' || student.priorDiploma ? '2 ዓመት (ቀድሞ ዲፕሎማ ያለው)' : '3 ዓመት መደበኛ (5-6 ሴሚስተር)'}
+                </span>
+              </p>
+              <p>
                 <span className="text-slate-500 font-normal">የትምህርት ዘመን:</span>{' '}
-                <span className="font-bold text-slate-900">{currentYear} ዓ.ም</span>
+                <span className="font-bold text-slate-900">{currentYear} ዓ.ም (እንደ ኢትዮጵያ ዘመን አቆጣጠር)</span>
               </p>
               <p>
                 <span className="text-slate-500 font-normal">ሴሚስተር:</span>{' '}
@@ -215,19 +221,16 @@ export const TranscriptModal: React.FC<TranscriptModalProps> = ({
           <div className="relative pt-6 border-t border-slate-300 max-w-2xl mx-auto">
             {/* Optional Official Stamp inserted if enabled by Dean or Admin */}
             {officialConfig?.showStamp && (
-              <div className="absolute left-1/2 -top-2 transform -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-90 z-10">
-                <div className="w-24 h-24 rounded-full border-2 border-dashed border-indigo-700/80 p-1 flex items-center justify-center bg-white/70 backdrop-blur-xs shadow-xs">
-                  <img
-                    src={
-                      officialConfig.useChurchLogoAsStamp
-                        ? churchLogo || CHURCH_LOGO
-                        : officialConfig.stampImage || churchLogo || CHURCH_LOGO
-                    }
-                    alt="ማኅተም"
-                    className="w-16 h-16 object-contain"
-                  />
-                </div>
-                <span className="text-[8px] font-bold text-slate-800 mt-0.5">ይፋዊ ማኅተም</span>
+              <div className="absolute left-1/2 -top-4 transform -translate-x-1/2 flex flex-col items-center pointer-events-none opacity-95 z-10">
+                <img
+                  src={
+                    officialConfig.useChurchLogoAsStamp
+                      ? churchLogo || CHURCH_LOGO
+                      : officialConfig.stampImage || churchLogo || CHURCH_LOGO
+                  }
+                  alt="ማኅተም"
+                  className="w-32 h-32 sm:w-36 sm:h-36 object-contain drop-shadow-sm select-none"
+                />
               </div>
             )}
 

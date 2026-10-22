@@ -245,7 +245,10 @@ export async function syncPhotosToFirestore(photos: Record<string, string>) {
 
 export async function syncChurchLogoToFirestore(logo: string) {
   try {
-    await setDoc(doc(db, '_system_settings', 'branding'), { churchLogo: logo, updatedAt: new Date().toISOString() }, { merge: true });
+    await Promise.allSettled([
+      setDoc(doc(db, 'system_state', 'branding'), { churchLogo: logo, updatedAt: new Date().toISOString() }, { merge: true }),
+      setDoc(doc(db, '_system_settings', 'branding'), { churchLogo: logo, updatedAt: new Date().toISOString() }, { merge: true })
+    ]);
   } catch (e) {
     console.warn('Error saving church logo to Firestore:', e);
   }
@@ -253,9 +256,15 @@ export async function syncChurchLogoToFirestore(logo: string) {
 
 export async function loadChurchLogoFromFirestore(): Promise<string | null> {
   try {
-    const brandSnap = await getDoc(doc(db, '_system_settings', 'branding'));
+    const brandSnap = await getDoc(doc(db, 'system_state', 'branding'));
     if (brandSnap.exists() && brandSnap.data()?.churchLogo) {
       return brandSnap.data()?.churchLogo;
+    }
+  } catch (_) {}
+  try {
+    const brandSnapOld = await getDoc(doc(db, '_system_settings', 'branding'));
+    if (brandSnapOld.exists() && brandSnapOld.data()?.churchLogo) {
+      return brandSnapOld.data()?.churchLogo;
     }
   } catch (e) {
     console.warn('Error loading church logo from Firestore:', e);

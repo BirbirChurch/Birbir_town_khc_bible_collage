@@ -112,7 +112,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                 <span>የተማሪዎች ውጤት ከኤክሴል (Excel / CSV) መጫኛ</span>
               </h3>
               <p className="text-xs text-emerald-200">
-                ኮርስ: <span className="font-bold text-amber-300">{course.name}</span> ({course.program}) | መምህር: {course.teacher}
+                ኮርስ: <span className="font-bold text-amber-300">{course.name}</span> ({course.program}) | መምህር: {course.teacher} | 🇪🇹 {currentYear} ዓ.ም ({currentSemester}ኛ ሴሚስተር - ኢ.ዘ.አ)
               </p>
             </div>
           </div>

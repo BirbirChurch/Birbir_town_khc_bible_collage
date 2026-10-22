@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
 import { Course, GradeBreakdown, Student } from '../types.ts';
 import {
+  calculateStudentGPA,
   getCourseAssessmentItems,
   getCriterionScore,
   getEffectiveGradeValues,
-  getGradeKey
+  getGradeKey,
+  resolveGradeBreakdown
 } from './gradeCalculations.ts';
 
 export interface ParsedGradeRow {
@@ -54,11 +56,12 @@ export function exportCourseGradesToExcel(
     ['የብርብር ከተማ ቃለ ሕይወት ቤተ ክርስቲያን መጽሐፍ ቅዱስ ትምህርት ቤት'],
     ['ይፋዊ የኮርስ ውጤት ሰነድ (Official Course Grade Sheet)'],
     [
-      `የትምህርት ዓይነት: ${course.name}`,
+      `የትምህርት ዓይነት: ${course.code ? `[${course.code}] ` : ''}${course.name}`,
       `ፕሮግራም: ${course.program}`,
       `መምህር: ${course.teacher}`,
-      `ክሬዲት: ${course.credits}`
+      `የትምህርቱ ጊዜ / ክሬዲት: ${course.credits} ክሬዲት ሰዓት`
     ],
+
     [
       `የትምህርት ዘመን: ${currentYear} ዓ.ም`,
       `ሴሚስተር: ${currentSemester}ኛ ሴሚስተር`,
@@ -88,8 +91,7 @@ export function exportCourseGradesToExcel(
   let gradedCount = 0;
 
   enrolled.forEach((student, idx) => {
-    const key = getGradeKey(student.uid, course.id, currentYear, currentSemester);
-    const g = grades[key] || { p1: 0, p2: 0, mid: 0, final: 0, att: 0 };
+    const g = resolveGradeBreakdown(grades, student.uid, course.id, currentYear, currentSemester, student.id);
     const eff = getEffectiveGradeValues(g, criteria);
 
     if (eff.hasAny) {
@@ -154,6 +156,128 @@ export function exportCourseGradesToExcel(
   // Trigger download
   const cleanCourseName = course.name.replace(/[\/\\?%*:|"<>]/g, '_');
   const filename = `ውጤት_${cleanCourseName}_${course.program}_${currentYear}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+/**
+ * Export comprehensive multi-program master grade sheet to Excel (.xlsx)
+ * Contains all courses, student details, semester GPA, and statistics.
+ */
+export function exportMasterGradesToExcel(
+  students: Student[],
+  courses: Course[],
+  grades: Record<string, GradeBreakdown>,
+  currentYear: string,
+  currentSemester: string
+) {
+  const wb = XLSX.utils.book_new();
+
+  // Helper to build a program or overall sheet
+  const buildSheet = (studentList: Student[], title: string) => {
+    const rows: any[][] = [
+      ['የብርብር ከተማ ቃለ ሕይወት ቤተ ክርስቲያን መጽሐፍ ቅዱስ ትምህርት ቤት'],
+      [`የተማሪዎች አጠቃላይ የውጤት መዝገብ — ${title} (Master Grade Sheet)`],
+      [
+        `የትምህርት ዘመን: ${currentYear} ዓ.ም (እንደ ኢትዮጵያ ዘመን አቆጣጠር)`,
+        `ሴሚስተር: ${currentSemester}ኛ ሴሚስተር`,
+        `ጠቅላላ ተማሪዎች: ${studentList.length}`,
+        `የወጣበት ቀን: ${new Date().toLocaleDateString('en-GB')}`
+      ],
+      []
+    ];
+
+    // Relevant courses for this student group
+    const relevantCourses = courses.filter((c) =>
+      studentList.some((s) => s.program === c.program)
+    );
+
+    const header = [
+      'ተ.ቁ',
+      'መለያ ቁጥር (ID)',
+      'የተማሪ ሙሉ ስም',
+      'ጾታ',
+      'ፕሮግራም',
+      'የትምህርት ደረጃ / ዓመት'
+    ];
+
+    relevantCourses.forEach((c) => {
+      header.push(`${c.name} (${c.credits}Cr)`);
+    });
+
+    header.push('ጠቅላላ ክሬዲት', 'ጠቅላላ ነጥብ (Points)', 'የሴሚስተር GPA', 'ደረጃ / ማዕረግ');
+    rows.push(header);
+
+    studentList.forEach((s, idx) => {
+      let totalCreds = 0;
+      let totalPts = 0;
+
+      const row: any[] = [
+        idx + 1,
+        s.id,
+        s.name,
+        s.gender || '—',
+        s.program,
+        s.currentStudyYear ? `${s.currentStudyYear}ኛ ዓመት` : '1ኛ ዓመት'
+      ];
+
+      relevantCourses.forEach((c) => {
+        if (c.program === s.program) {
+          const g = resolveGradeBreakdown(grades, s.uid, c.id, currentYear, currentSemester, s.id);
+          const eff = getEffectiveGradeValues(g, getCourseAssessmentItems(c));
+          if (eff.hasAny) {
+            totalCreds += c.credits;
+            totalPts += eff.points * c.credits;
+            row.push(`${eff.total} (${eff.letter})`);
+          } else {
+            row.push('—');
+          }
+        } else {
+          row.push('N/A');
+        }
+      });
+
+      const gpa = totalCreds > 0 ? (totalPts / totalCreds).toFixed(2) : '0.00';
+      const numGpa = Number(gpa);
+      const standing = numGpa >= 3.8 ? 'በጣም ከፍተኛ ማዕረግ' : numGpa >= 3.5 ? 'ከፍተኛ ማዕረግ' : numGpa >= 2.0 ? 'አልፏል' : 'ዝቅተኛ';
+
+      row.push(totalCreds, totalPts.toFixed(2), gpa, standing);
+      rows.push(row);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const colWidths = [
+      { wch: 6 },
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 8 },
+      { wch: 12 },
+      { wch: 16 }
+    ];
+    relevantCourses.forEach(() => colWidths.push({ wch: 20 }));
+    colWidths.push({ wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 20 });
+    ws['!cols'] = colWidths;
+    return ws;
+  };
+
+  // Sheet 1: Master All Students
+  const wsAll = buildSheet(students, 'ጠቅላላ ተማሪዎች');
+  XLSX.utils.book_append_sheet(wb, wsAll, 'አጠቃላይ_ውጤት');
+
+  // Sheet 2: Degree Program
+  const degreeStudents = students.filter((s) => s.program === 'Degree');
+  if (degreeStudents.length > 0) {
+    const wsDegree = buildSheet(degreeStudents, 'የድግሪ ፕሮግራም');
+    XLSX.utils.book_append_sheet(wb, wsDegree, 'ድግሪ_ተማሪዎች');
+  }
+
+  // Sheet 3: Diploma Program
+  const diplomaStudents = students.filter((s) => s.program === 'Diploma');
+  if (diplomaStudents.length > 0) {
+    const wsDiploma = buildSheet(diplomaStudents, 'የዲፕሎማ ፕሮግራም');
+    XLSX.utils.book_append_sheet(wb, wsDiploma, 'ዲፕሎማ_ተማሪዎች');
+  }
+
+  const filename = `አጠቃላይ_የተማሪዎች_ውጤት_መዝገብ_${currentYear}_${currentSemester}ኛ_ሴሚስተር.xlsx`;
   XLSX.writeFile(wb, filename);
 }
 
@@ -419,4 +543,148 @@ export async function parseExcelGradesFile(
 
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * Export comprehensive Master Semester Grade Sheet for all students across all courses
+ */
+export function exportMasterSemesterGradeSheetToExcel(
+  students: Student[],
+  courses: Course[],
+  grades: Record<string, GradeBreakdown>,
+  currentYear: string,
+  currentSemester: string,
+  programFilter: 'ALL' | 'Diploma' | 'Degree' = 'ALL'
+) {
+  const wb = XLSX.utils.book_new();
+
+  const programsToExport = programFilter === 'ALL' ? ['Diploma', 'Degree'] : [programFilter];
+
+  programsToExport.forEach((prog) => {
+    const progStudents = students.filter((s) => s.program === prog);
+    const progCourses = courses.filter((c) => c.program === prog);
+
+    const sheetName = prog === 'Diploma' ? 'የዲፕሎማ ተማሪዎች' : 'የድግሪ ተማሪዎች';
+
+    const rows: any[][] = [
+      ['የብርብር ከተማ ቃለ ሕይወት ቤተ ክርስቲያን መጽሐፍ ቅዱስ ትምህርት ቤት'],
+      [`ይፋዊ የተማሪዎች አጠቃላይ የሴሚስተር ውጤት ዝርዝር ሰነድ (${sheetName})`],
+      [
+        `የትምህርት ዘመን: ${currentYear} ዓ.ም`,
+        `ሴሚስተር: ${currentSemester}ኛ ሴሚስተር`,
+        `የተማሪዎች ብዛት: ${progStudents.length}`,
+        `የኮርሶች ብዛት: ${progCourses.length}`,
+        `የወጣበት ቀን: ${new Date().toLocaleDateString('en-GB')}`
+      ],
+      []
+    ];
+
+    // Header Row
+    const headerRow = [
+      'ተ.ቁ',
+      'መለያ ቁጥር (ID)',
+      'የተማሪ ሙሉ ስም',
+      'ጾታ',
+      'የትምህርት ዓመት'
+    ];
+
+    progCourses.forEach((c) => {
+      headerRow.push(`${c.name} (${c.credits}cr)`);
+    });
+
+    headerRow.push('ጠቅላላ ክሬዲት', 'የሴሚስተር GPA', 'የትምህርት አቋም', 'የምረቃ ሁኔታ');
+    rows.push(headerRow);
+
+    // Student Data Rows
+    let totalGpaSum = 0;
+    let studentsWithGpa = 0;
+
+    progStudents.forEach((student, idx) => {
+      const gpaStr = calculateStudentGPA(student, courses, grades, currentYear, currentSemester);
+      const gpaNum = parseFloat(gpaStr);
+      if (!isNaN(gpaNum) && gpaNum > 0) {
+        totalGpaSum += gpaNum;
+        studentsWithGpa++;
+      }
+
+      const studyYearLabel = `${student.currentStudyYear || 1}ኛ ዓመት`;
+      const isCandidate = student.graduationStatus === 'CANDIDATE' || student.admissionYear === '2018' || student.id.startsWith('2018');
+      const isGraduated = student.graduationStatus === 'GRADUATED';
+      const gradLabel = isGraduated ? 'የተመረቀ' : isCandidate ? 'ተማራቂ (2019)' : 'በመማር ላይ';
+
+      const row: any[] = [
+        idx + 1,
+        student.id,
+        student.name,
+        student.gender || '—',
+        studyYearLabel
+      ];
+
+      let studentTotalCredits = 0;
+
+      progCourses.forEach((c) => {
+        const g = resolveGradeBreakdown(grades, student.uid, c.id, currentYear, currentSemester, student.id);
+        const eff = getEffectiveGradeValues(g, getCourseAssessmentItems(c));
+        if (eff.hasAny) {
+          row.push(`${eff.total} (${eff.letter})`);
+          studentTotalCredits += c.credits;
+        } else {
+          row.push('—');
+        }
+      });
+
+      const standing = gpaNum >= 3.75 ? 'እጅግ ከፍተኛ ማዕረግ (Very Great Distinction)'
+        : gpaNum >= 3.50 ? 'ከፍተኛ ማዕረግ (Great Distinction)'
+        : gpaNum >= 3.25 ? 'ማዕረግ (Distinction)'
+        : gpaNum >= 2.00 ? 'አልፏል (Pass)'
+        : gpaNum > 0 ? 'ማስጠንቀቂያ (Warning)'
+        : 'ውጤት አልተሞላም';
+
+      row.push(
+        studentTotalCredits,
+        gpaStr,
+        standing,
+        gradLabel
+      );
+
+      rows.push(row);
+    });
+
+    // Summary row
+    rows.push([]);
+    const avgGpa = studentsWithGpa > 0 ? (totalGpaSum / studentsWithGpa).toFixed(2) : '0.00';
+    rows.push([
+      'አማካይ ማጠቃለያ',
+      `ጠቅላላ ተማሪዎች: ${progStudents.length}`,
+      `ውጤት የተሞላላቸው: ${studentsWithGpa}`,
+      `የክፍሉ አማካይ GPA: ${avgGpa}`,
+      ...progCourses.map(() => ''),
+      '',
+      '',
+      '',
+      ''
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Set column widths
+    const colWidths = [
+      { wch: 7 },
+      { wch: 16 },
+      { wch: 28 },
+      { wch: 8 },
+      { wch: 14 },
+      ...progCourses.map(() => ({ wch: 20 })),
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 25 },
+      { wch: 16 }
+    ];
+    ws['!cols'] = colWidths;
+
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  const fileName = `የተማሪዎች_አጠቃላይ_ውጤት_${currentYear}_${currentSemester}ኛ_ሴሚስተር.xlsx`;
+  XLSX.writeFile(wb, fileName);
 }

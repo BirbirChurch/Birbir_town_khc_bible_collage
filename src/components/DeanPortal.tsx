@@ -17,7 +17,8 @@ import {
   UserPlus,
   Save,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  GraduationCap
 } from 'lucide-react';
 import { Course, GradeBreakdown, OfficialSignaturesConfig, ProgramType, Student } from '../types.ts';
 import { calculateGradeDetails, calculateStudentGPA, getCourseAssessmentConfig, getCourseAssessmentItems, getCriterionScore, getEffectiveGradeValues, getGradeKey } from '../utils/gradeCalculations.ts';
@@ -25,7 +26,9 @@ import { getCriterionColor } from './TeacherPortal.tsx';
 import { OfficialSignaturesManager } from './OfficialSignaturesManager.tsx';
 import { ExcelUploadModal } from './ExcelUploadModal.tsx';
 import { CourseGradeReportPdfModal } from './CourseGradeReportPdfModal.tsx';
-import { exportCourseGradesToExcel, downloadCourseGradeTemplateExcel } from '../utils/excelUtils.ts';
+import { exportCourseGradesToExcel, downloadCourseGradeTemplateExcel, exportMasterSemesterGradeSheetToExcel } from '../utils/excelUtils.ts';
+import { GraduationManager } from './GraduationManager.tsx';
+import { MasterGradeReportPdfModal } from './MasterGradeReportPdfModal.tsx';
 
 interface DeanPortalProps {
   currentYear: string;
@@ -53,6 +56,7 @@ interface DeanPortalProps {
   onSaveOfficialConfig: (updated: OfficialSignaturesConfig) => void;
   onClearAllGrades?: () => void;
   churchLogo?: string;
+  onUpdateStudents?: (updated: Student[]) => void;
 }
 
 export const DeanPortal: React.FC<DeanPortalProps> = ({
@@ -80,9 +84,10 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
   officialConfig,
   onSaveOfficialConfig,
   onClearAllGrades,
-  churchLogo
+  churchLogo,
+  onUpdateStudents
 }) => {
-  const [activeTab, setActiveTab] = useState<'courses' | 'supervision' | 'transcripts' | 'teachers' | 'official_signatures'>('courses');
+  const [activeTab, setActiveTab] = useState<'courses' | 'supervision' | 'transcripts' | 'teachers' | 'graduation' | 'official_signatures'>('courses');
   const [courseProgramFilter, setCourseProgramFilter] = useState<'ALL' | ProgramType>('ALL');
   const [newYearInput, setNewYearInput] = useState('');
   const [showAddYearModal, setShowAddYearModal] = useState(false);
@@ -96,6 +101,7 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
   const [editingGradeMatrix, setEditingGradeMatrix] = useState<Record<string, GradeBreakdown>>({});
   const [isExcelUploadOpen, setIsExcelUploadOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isMasterPdfOpen, setIsMasterPdfOpen] = useState(false);
 
   // Sync supervision matrix when course changes
   React.useEffect(() => {
@@ -464,6 +470,18 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('graduation')}
+          className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            activeTab === 'graduation'
+              ? 'border-emerald-700 text-emerald-800 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <GraduationCap className="w-4 h-4 text-amber-500" />
+          <span>የተማራቂዎች ማረጋገጫና ማህደር</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('official_signatures')}
           className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
             activeTab === 'official_signatures'
@@ -647,12 +665,32 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
 
               <button
                 type="button"
+                onClick={() => exportMasterSemesterGradeSheetToExcel(students, courses, grades, currentYear, currentSemester)}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="የሁሉንም ተማሪዎች አጠቃላይ ውጤት በኤክሴል (.xlsx) ለማውረድ"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+                <span>ጠቅላላ ውጤት ኤክሴል</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setIsPdfModalOpen(true)}
                 className="bg-cyan-50 hover:bg-cyan-100 text-cyan-950 border border-cyan-300 text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 title="ይፋዊ የውጤት ሰነድ ለማተም ወይም በፒዲኤፍ (PDF) ለማስቀመጥ"
               >
                 <Printer className="w-3.5 h-3.5 text-cyan-700" />
                 <span>ይፋዊ ሰነድ (PDF)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMasterPdfOpen(true)}
+                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-950 border border-indigo-300 text-xs px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="የሁሉንም ተማሪዎች አጠቃላይ ውጤት በፒዲኤፍ ለማየትና ለማተም"
+              >
+                <Printer className="w-3.5 h-3.5 text-indigo-700" />
+                <span>ጠቅላላ ሰነድ (PDF)</span>
               </button>
 
               {onClearAllGrades && (
@@ -786,6 +824,8 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
                   <th className="p-2.5">መለያ ቁጥር (ID)</th>
                   <th className="p-2.5">የተማሪ ስም</th>
                   <th className="p-2.5">ፕሮግራም</th>
+                  <th className="p-2.5">ደረጃ / ዓመት</th>
+                  <th className="p-2.5">የትምህርት ዝግጅት</th>
                   <th className="p-2.5 text-center">ሴሚስተር GPA</th>
                   <th className="p-2.5 text-right">ትራንስክሪፕት</th>
                 </tr>
@@ -804,6 +844,16 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
                         }`}>
                           {s.program}
                         </span>
+                      </td>
+                      <td className="p-2.5">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          s.currentStudyYear === 2 ? 'bg-amber-100 text-amber-950 border border-amber-300' : s.currentStudyYear === 3 ? 'bg-purple-100 text-purple-900' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {s.currentStudyYear ? `${s.currentStudyYear}ኛ ዓመት` : '1ኛ ዓመት'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-[11px] text-slate-600">
+                        {s.program === 'Diploma' ? 'ዲፕሎማ (2 ዓመት)' : s.degreeTrack === '2_YEAR' ? 'ድግሪ (2 ዓመት - ቅድመ ዲፕሎማ)' : 'መደበኛ ድግሪ (3 ዓመት)'}
                       </td>
                       <td className="p-2.5 text-center font-black text-amber-700 font-mono">{gpa}</td>
                       <td className="p-2.5 text-right">
@@ -955,6 +1005,26 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
         </div>
       </div>
 
+      {/* TAB: Graduation Candidates & Archive */}
+      {activeTab === 'graduation' && (
+        <GraduationManager
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          availableYears={availableYears}
+          currentUserRole="DEAN"
+          officialConfig={officialConfig}
+          churchLogo={churchLogo}
+          onUpdateStudents={onUpdateStudents || (() => {})}
+          showNotify={showNotify}
+          onSaveGrades={onSaveGrades}
+          teachers={teachers}
+        />
+
+      )}
+
       {/* TAB 5: Official Signatures and Stamp */}
       {activeTab === 'official_signatures' && (
         <OfficialSignaturesManager
@@ -1068,6 +1138,20 @@ export const DeanPortal: React.FC<DeanPortalProps> = ({
           officialConfig={officialConfig}
           churchLogo={churchLogo}
           onClose={() => setIsPdfModalOpen(false)}
+        />
+      )}
+
+      {/* Master Semester Grade Report PDF Modal for Dean */}
+      {isMasterPdfOpen && (
+        <MasterGradeReportPdfModal
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+          churchLogo={churchLogo}
+          officialConfig={officialConfig}
+          onClose={() => setIsMasterPdfOpen(false)}
         />
       )}
     </div>
