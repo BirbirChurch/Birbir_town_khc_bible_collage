@@ -34,7 +34,8 @@ import {
   Sparkles,
   Save,
   Calendar,
-  Plus
+  Plus,
+  BarChart3
 } from 'lucide-react';
 import { GradingScaleItem, Student, Course, GradeBreakdown, OfficialSignaturesConfig, ProgramType } from '../types.ts';
 import { OFFICIAL_GRADING_SCALE, generateTeacherKey } from '../data/initialData.ts';
@@ -48,6 +49,7 @@ import { getCourseAssessmentItems, getCriterionScore, getEffectiveGradeValues, g
 import { getCriterionColor } from './TeacherPortal.tsx';
 import { GraduationManager } from './GraduationManager.tsx';
 import { MasterGradeReportPdfModal } from './MasterGradeReportPdfModal.tsx';
+import { AdminAnalytics } from './AdminAnalytics.tsx';
 import { compressImage } from '../utils/imageCompressor.ts';
 
 interface AdminPortalProps {
@@ -133,7 +135,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   availableYears = ['2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'],
   onUpdateStudents
 }) => {
-  const [adminTab, setAdminTab] = useState<'security' | 'academic_calendar' | 'teachers' | 'courses' | 'students' | 'graduation' | 'official_signatures'>('security');
+  const [adminTab, setAdminTab] = useState<'security' | 'academic_calendar' | 'teachers' | 'courses' | 'students' | 'graduation' | 'analytics' | 'official_signatures'>('security');
   const [teacherSearchTerm, setTeacherSearchTerm] = useState('');
   const [teacherFilter, setTeacherFilter] = useState<'all' | 'active' | 'locked'>('all');
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
@@ -486,6 +488,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </button>
 
         <button
+          onClick={() => setAdminTab('analytics')}
+          className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
+            adminTab === 'analytics'
+              ? 'border-purple-700 text-purple-900 bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4 text-purple-600" />
+          <span>የመረጃ ትንተና እና ግራፍ (Charts)</span>
+        </button>
+
+        <button
           onClick={() => setAdminTab('official_signatures')}
           className={`py-2.5 px-4 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-2 cursor-pointer ${
             adminTab === 'official_signatures'
@@ -702,7 +716,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           showNotify={showNotify || (() => {})}
           teachers={teachers}
         />
+      )}
 
+      {/* TAB: Analytics & Visualizations using Recharts */}
+      {adminTab === 'analytics' && (
+        <AdminAnalytics
+          students={students}
+          courses={courses}
+          grades={grades}
+          currentYear={currentYear}
+          currentSemester={currentSemester}
+        />
       )}
 
       {/* TAB 1: Security & Passwords */}

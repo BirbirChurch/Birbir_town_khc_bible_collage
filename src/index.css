@@ -1,8 +1,20 @@
 @import "tailwindcss";
 
+:root {
+  color-scheme: light;
+}
+
 @layer base {
-  body {
+  html, body {
     font-family: 'Noto Sans Ethiopic', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f8fafc;
+    color: #0f172a;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Prevent forced dark mode on mobile devices from making text invisible */
+  input, select, textarea {
+    color: #0f172a !important;
   }
 }
 
@@ -10,19 +22,120 @@
   font-family: 'Noto Serif Ethiopic', Georgia, serif;
 }
 
+/* High-contrast and colorful table styles */
+.printable-table th {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
 @media print {
-  .no-print {
+  :root {
+    color-scheme: light;
+  }
+
+  /* Hide background elements, app navigation, toasts, and buttons */
+  .no-print, header, footer, nav, [role="alert"], button, select, input {
     display: none !important;
   }
+
   .print-only {
     display: block !important;
   }
-  body {
-    background-color: white !important;
-    color: black !important;
+
+  html, body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
   }
+
+  /* When printing from within a document modal, isolate printable document */
+  body:has(#printable-graduation-transcript),
+  body:has(#printable-course-grade-report),
+  body:has(#printable-transcript-content) {
+    visibility: hidden !important;
+    background: #ffffff !important;
+  }
+
+  #printable-graduation-transcript,
+  #printable-graduation-transcript *,
+  #printable-course-grade-report,
+  #printable-course-grade-report *,
+  #printable-transcript-content,
+  #printable-transcript-content * {
+    visibility: visible !important;
+  }
+
+  #printable-graduation-transcript,
+  #printable-course-grade-report,
+  #printable-transcript-content {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10px 14px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    display: block !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Unpin fixed modal overlays */
+  .fixed.inset-0 {
+    position: static !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    inset: auto !important;
+    z-index: auto !important;
+  }
+
+  /* Expand modal containers in print */
+  .max-w-6xl, .max-w-5xl, .max-w-4xl, .max-w-3xl, .max-w-2xl, .max-w-md {
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  /* Prevent scroll clipping */
+  .max-h-\[82vh\], .max-h-\[85vh\], .max-h-\[90vh\], .max-h-\[92vh\], .max-h-\[80vh\], .max-h-\[500px\], .max-h-\[400px\], .overflow-y-auto, .overflow-x-auto {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Crisp borders and solid black text for printing */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th, td {
+    color: #000000 !important;
+    border-color: #94a3b8 !important;
+  }
+
   @page {
-    margin: 1.2cm;
+    margin: 0.8cm;
     size: A4 portrait;
   }
 }

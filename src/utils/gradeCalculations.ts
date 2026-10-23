@@ -197,6 +197,19 @@ export function resolveGradeBreakdown(
     }
   }
 
+  // 5. Fallback: match by studentUid/studentId AND courseId anywhere in key so teacher-submitted grades are never lost
+  if (courseId) {
+    const cleanCourse = courseId.trim().toLowerCase();
+    for (const [k, val] of Object.entries(gradesRecord)) {
+      const kLow = k.toLowerCase();
+      const hasStudent = kLow.includes(cleanUid) || (cleanId && kLow.includes(cleanId));
+      const hasCourse = kLow.includes(cleanCourse);
+      if (hasStudent && hasCourse && val) {
+        return val;
+      }
+    }
+  }
+
   return empty;
 }
 

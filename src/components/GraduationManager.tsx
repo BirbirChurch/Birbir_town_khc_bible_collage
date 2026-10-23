@@ -24,7 +24,8 @@ import {
   Trash2,
   X,
   History,
-  Layers
+  Layers,
+  Upload
 } from 'lucide-react';
 import { Course, GradeBreakdown, OfficialSignaturesConfig, ProgramType, Student, UserRole } from '../types.ts';
 import {
@@ -38,6 +39,7 @@ import {
 } from '../utils/gradeCalculations.ts';
 import { GraduationTranscriptModal } from './GraduationTranscriptModal.tsx';
 import { exportCourseGradesToExcel, exportMasterSemesterGradeSheetToExcel } from '../utils/excelUtils.ts';
+import { ExcelUploadModal } from './ExcelUploadModal.tsx';
 import {
   DIPLOMA_CURRICULUM,
   loadHistorical2018Courses,
@@ -135,6 +137,7 @@ export const GraduationManager: React.FC<GraduationManagerProps> = ({
   // Local scores matrix for the active course and period
   const [localGradingGrades, setLocalGradingGrades] = useState<Record<string, GradeBreakdown>>({});
   const [isPdfGradeReportOpen, setIsPdfGradeReportOpen] = useState(false);
+  const [isExcelUploadOpen, setIsExcelUploadOpen] = useState(false);
 
   // Sync local grading matrix when course or period changes
   useEffect(() => {
@@ -416,6 +419,62 @@ export const GraduationManager: React.FC<GraduationManagerProps> = ({
       gradingSemester
     );
     showNotify(`የ${selectedGradCourse.name} የተመራቂዎች ውጤት ኤክሴል (.xlsx) በስኬት ወርዷል!`, 'success');
+  };
+
+  // Handle Grades Imported via Excel for the Active Course
+  const handleApplyExcelGrades = (updatedScoresByUid: Record<string, Record<string, number>>) => {
+    if (!selectedGradCourse) return;
+
+    setLocalGradingGrades((prev) => {
+      const next = { ...prev };
+      Object.entries(updatedScoresByUid).forEach(([uid, scoresMap]) => {
+        const current = next[uid] || { p1: 0, p2: 0, mid: 0, final: 0, att: 0 };
+        const currentScores = current.scores ? { ...current.scores } : {};
+        Object.entries(scoresMap).forEach(([itemId, val]) => {
+          currentScores[itemId] = val;
+        });
+
+        next[uid] = {
+          ...current,
+          scores: currentScores,
+          ...(scoresMap['p1'] !== undefined ? { p1: scoresMap['p1'] } : {}),
+          ...(scoresMap['p2'] !== undefined ? { p2: scoresMap['p2'] } : {}),
+          ...(scoresMap['mid'] !== undefined ? { mid: scoresMap['mid'] } : {}),
+          ...(scoresMap['final'] !== undefined ? { final: scoresMap['final'] } : {}),
+          ...(scoresMap['att'] !== undefined ? { att: scoresMap['att'] } : {})
+        };
+      });
+      return next;
+    });
+
+    if (onSaveGrades) {
+      const updatedGlobal = { ...grades };
+      diploma2018Students.forEach((s) => {
+        const incomingScores = updatedScoresByUid[s.uid];
+        if (incomingScores) {
+          const current = localGradingGrades[s.uid] || { p1: 0, p2: 0, mid: 0, final: 0, att: 0 };
+          const scoreVal: GradeBreakdown = {
+            ...current,
+            scores: { ...(current.scores || {}), ...incomingScores },
+            ...(incomingScores['p1'] !== undefined ? { p1: incomingScores['p1'] } : {}),
+            ...(incomingScores['p2'] !== undefined ? { p2: incomingScores['p2'] } : {}),
+            ...(incomingScores['mid'] !== undefined ? { mid: incomingScores['mid'] } : {}),
+            ...(incomingScores['final'] !== undefined ? { final: incomingScores['final'] } : {}),
+            ...(incomingScores['att'] !== undefined ? { att: incomingScores['att'] } : {})
+          };
+          const keyByUid = getGradeKey(s.uid, selectedGradCourse.id, gradingYear, gradingSemester);
+          updatedGlobal[keyByUid] = scoreVal;
+          if (s.id) {
+            const keyById = getGradeKey(s.id, selectedGradCourse.id, gradingYear, gradingSemester);
+            updatedGlobal[keyById] = scoreVal;
+          }
+        }
+      });
+      onSaveGrades(updatedGlobal);
+    }
+
+    setIsExcelUploadOpen(false);
+    showNotify(`ከኤክሴል የተጫኑ ውጤቶች ለ«${selectedGradCourse.name}» በስኬት ተመዝግበዋል!`, 'success');
   };
 
   return (
@@ -755,6 +814,16 @@ export const GraduationManager: React.FC<GraduationManagerProps> = ({
               >
                 <Plus className="w-4 h-4 text-emerald-700" />
                 <span>+ አዲስ የ2018 ኮርስ ጨምር</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsExcelUploadOpen(true)}
+                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-950 border border-indigo-300 text-xs px-3.5 py-2 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="የተመራቂዎችን ውጤት ከኤክሴል ሰነድ ጫን (Excel Upload)"
+              >
+                <Upload className="w-4 h-4 text-indigo-700" />
+                <span>ኤክሴል ጫን (Upload)</span>
               </button>
 
               <button
@@ -1314,6 +1383,19 @@ export const GraduationManager: React.FC<GraduationManagerProps> = ({
           churchLogo={churchLogo}
           officialConfig={officialConfig}
           onClose={() => setIsPdfGradeReportOpen(false)}
+        />
+      )}
+
+      {/* Excel Upload Modal for Diploma Graduates Course */}
+      {isExcelUploadOpen && selectedGradCourse && (
+        <ExcelUploadModal
+          course={selectedGradCourse}
+          students={diploma2018Students}
+          currentYear={gradingYear}
+          currentSemester={gradingSemester}
+          onApplyGrades={handleApplyExcelGrades}
+          onClose={() => setIsExcelUploadOpen(false)}
+          showNotify={showNotify}
         />
       )}
     </div>
